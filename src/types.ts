@@ -1,7 +1,7 @@
 export const BRUSH_IDS = ['ink', 'pencil', 'marker', 'watercolor', 'crayon', 'airbrush', 'glitter'] as const;
 export type BrushStyle = typeof BRUSH_IDS[number];
 export type Tool = 'pen' | 'eraser' | 'fill';
-export type CanvasMode = Tool | 'lasso' | 'picker';
+export type CanvasMode = Tool | 'lasso' | 'lasso-paint' | 'picker';
 export const BLEND_MODES = ['normal', 'multiply', 'screen'] as const;
 export type BlendMode = typeof BLEND_MODES[number];
 export type PaintGradient = { to: string; angle: number };
@@ -25,6 +25,7 @@ export type Stroke = {
 };
 export type Partner = {
   id: string;
+  userId?: string;
   name: string;
   accent: string;
   joinedAt: number;

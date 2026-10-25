@@ -5,7 +5,7 @@ import { validLessonStep } from './guidedLesson';
 import { applySelectionEdit, isSelectionEdit, limitTranslation, MAX_SELECTION } from './selection';
 import type { BoardMessage, BoardState, Cursor, Partner, Point, SelectionEdit, Stroke, TemplateId } from './types';
 
-type Connection = 'solo' | 'connecting' | 'connected' | 'error' | 'full';
+type Connection = 'solo' | 'connecting' | 'connected' | 'error' | 'full' | 'expired';
 type Reaction = { id: string; value: string; name: string };
 type EditIntent =
   | { action: 'move'; ids: string[]; dx: number; dy: number }
@@ -86,11 +86,8 @@ export function useRoom(roomId: string, displayName: string) {
       onMembers(next) {
         if (!active) return;
         setMembers(next);
-        if (next.length > 2 && !next.slice(0, 2).some((item) => item.id === myId)) {
-          setConnection('full');
-        } else {
-          setConnection((current) => current === 'full' ? 'connected' : current);
-        }
+        // Backend admission enforces two distinct users; presence may contain
+        // multiple tabs from the same user and must not reject them.
       },
       onMessage(message) {
         if (!active || !message || message.from === myId) return;

@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import { paintArtwork, paintStroke } from './brushes';
 import { colorOverPaper } from './colorPaint';
 import { limitTranslation, selectionBounds, strokesInsideLasso } from './selection';
+import { lassoPaintPolygon } from './lassoPaint';
 import type { BlendMode, BrushStyle, CanvasMode, Point, Stroke } from './types';
 
 const WORLD_W = 1000;
@@ -32,6 +33,7 @@ type Props = {
   blend: BlendMode;
   onPickColor: (hex: string) => void;
   onFill: (point: Point) => void;
+  onLassoPaint: (outline: Point[]) => void;
   size: number;
   disabled?: boolean;
   onStart: (stroke: Stroke) => void;
@@ -42,6 +44,7 @@ type Props = {
 
 type LassoGesture =
   | { kind: 'outline'; points: Point[] }
+  | { kind: 'paint'; points: Point[] }
   | { kind: 'drag'; ids: string[]; start: Point; dx: number; dy: number };
 
 function drawSelection(ctx: CanvasRenderingContext2D, strokes: Stroke[], ids: string[], gesture: LassoGesture | null) {
@@ -105,6 +108,20 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     // During a lasso move, preview translated vector strokes without editing
     // the board. A committed edit will invalidate the finished-stroke cache.
     const moving = selectionGesture.current?.kind === 'drag' ? selectionGesture.current : null;
+    const painting = selectionGesture.current?.kind === 'paint' ? selectionGesture.current : null;
+    if (painting) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, element.width, element.height);
+      ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
+      const path = lassoPaintPolygon(painting.points);
+      const preview: Stroke[] = path ? [{ id: 'lasso-paint-preview', by: props.myId,
+        tool: 'fill', size: 1, color: props.color, opacity: props.opacity,
+        ...(props.gradientTo ? { gradient: { to: props.gradientTo, angle: props.gradientAngle } } : {}),
+        ...(props.blend !== 'normal' ? { blend: props.blend } : {}), points: path }] : [];
+      paintArtwork(ctx, [...strokesRef.current, ...preview]);
+      drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
+      return;
+    }
     if (moving) {
       const selected = new Set(moving.ids);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -166,7 +183,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
     if (current.current) paintStroke(ctx, current.current);
     if (props.mode === 'lasso') drawSelection(ctx, strokesRef.current, props.selectedIds, selectionGesture.current);
-  }, [props.mode, props.selectedIds]);
+  }, [props.mode, props.selectedIds, props.myId, props.color, props.opacity, props.gradientTo, props.gradientAngle, props.blend]);
 
   const scheduleRender = useCallback(() => {
     if (renderRequest.current) return;
@@ -282,6 +299,13 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       props.onFill(initial);
       return;
     }
+    if (props.mode === 'lasso-paint') {
+      selectionGesture.current = { kind: 'paint', points: [initial] };
+      pointerId.current = event.pointerId;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      scheduleRender();
+      return;
+    }
     if (props.mode === 'lasso') {
       const region = selectionBounds(strokesRef.current, props.selectedIds);
       if (region && initial.x >= region.left - 7 && initial.x <= region.right + 7 &&
@@ -323,7 +347,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     }
     if (pointerId.current !== event.pointerId) return;
     const gesture = selectionGesture.current;
-    if (gesture?.kind === 'outline') {
+    if (gesture?.kind === 'outline' || gesture?.kind === 'paint') {
       const last = gesture.points[gesture.points.length - 1];
       if (Math.hypot(next.x - last.x, next.y - last.y) >= 3) {
         // Keep the polygon compact for smooth selection on older phones.
@@ -377,6 +401,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       pointerId.current = null;
       if (gesture.kind === 'outline') {
         props.onSelectionChange(strokesInsideLasso(strokesRef.current, gesture.points));
+      } else if (gesture.kind === 'paint') {
+        props.onLassoPaint(gesture.points);
       } else if (Math.hypot(gesture.dx, gesture.dy) > 0.6) {
         props.onMoveSelection(gesture.ids, gesture.dx, gesture.dy);
       }
@@ -413,7 +439,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     <canvas
       ref={canvas}
       className="drawing-canvas"
-      aria-label={props.mode === 'lasso' ? 'Draw a loop to select strokes, then drag to move them' :
+      aria-label={props.mode === 'lasso-paint' ? 'Trace a freehand outline to paint a filled shape' :
+        props.mode === 'lasso' ? 'Draw a loop to select strokes, then drag to move them' :
         props.mode === 'picker' ? 'Tap a painted area to sample its color' :
         props.mode === 'fill' ? 'Tap inside a closed shape to fill it with color' : 'Draw with your pointer, touch or pen'}
       tabIndex={props.mode === 'lasso' ? 0 : -1}
