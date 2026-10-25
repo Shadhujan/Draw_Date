@@ -1,3 +1,5 @@
+export const BRUSH_IDS = ['ink', 'pencil', 'marker', 'watercolor', 'crayon', 'airbrush', 'glitter'] as const;
+export type BrushStyle = typeof BRUSH_IDS[number];
 export type Tool = 'pen' | 'eraser';
 export type TemplateId = 'heart' | 'flowers' | 'bunny' | 'blank';
 export type Point = { x: number; y: number; p?: number };
@@ -7,6 +9,8 @@ export type Stroke = {
   tool: Tool;
   color: string;
   size: number;
+  brush?: BrushStyle;
+  opacity?: number;
   points: Point[];
 };
 export type Partner = {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { appendStroke, isStroke, isTemplate, loadBoard, sanitizeBoard, saveBoard } from './board';
+import { appendStroke, isPoint, isStroke, isTemplate, loadBoard, sanitizeBoard, saveBoard } from './board';
 import { joinChannel, realtimeConfigured } from './realtime';
 import type { BoardMessage, BoardState, Cursor, Partner, Point, Stroke, TemplateId } from './types';
 
@@ -80,7 +80,7 @@ export function useRoom(roomId: string, displayName: string) {
             break;
           case 'stroke-points': {
             if (!Array.isArray(message.points) || message.points.length > 50 ||
-                !message.points.every((p) => p && typeof p.x === 'number' && p.x >= 0 && p.x <= 1000 && typeof p.y === 'number' && p.y >= 0 && p.y <= 700)) break;
+                !message.points.every(isPoint)) break;
             const stroke = remoteDrafts.current.get(message.id);
             if (!stroke) break;
             remoteDrafts.current.set(message.id, {

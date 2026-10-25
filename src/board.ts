@@ -1,3 +1,4 @@
+import { BRUSH_IDS } from './types';
 import type { BoardState, Point, Stroke, TemplateId } from './types';
 
 const ROOM_RE = /^[a-f0-9]{32}$/;
@@ -17,11 +18,12 @@ export function emptyBoard(): BoardState {
   return { template: 'heart', strokes: [], revision: 0 };
 }
 
-function isPoint(value: unknown): value is Point {
+export function isPoint(value: unknown): value is Point {
   if (!value || typeof value !== 'object') return false;
   const p = value as Record<string, unknown>;
   return typeof p.x === 'number' && Number.isFinite(p.x) && p.x >= 0 && p.x <= 1000 &&
-    typeof p.y === 'number' && Number.isFinite(p.y) && p.y >= 0 && p.y <= 700;
+    typeof p.y === 'number' && Number.isFinite(p.y) && p.y >= 0 && p.y <= 700 &&
+    (p.p === undefined || (typeof p.p === 'number' && Number.isFinite(p.p) && p.p >= 0 && p.p <= 1));
 }
 
 export function isTemplate(value: unknown): value is TemplateId {
@@ -33,7 +35,10 @@ export function isStroke(value: unknown): value is Stroke {
   const s = value as Record<string, unknown>;
   return typeof s.id === 'string' && s.id.length < 128 && typeof s.by === 'string' &&
     (s.tool === 'pen' || s.tool === 'eraser') && typeof s.color === 'string' && /^#[\da-fA-F]{6}$/.test(s.color) &&
-    typeof s.size === 'number' && s.size > 0 && s.size <= 80 && Array.isArray(s.points) &&
+    typeof s.size === 'number' && Number.isFinite(s.size) && s.size > 0 && s.size <= 80 &&
+    (s.brush === undefined || BRUSH_IDS.some((brush) => brush === s.brush)) &&
+    (s.opacity === undefined || (typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0.1 && s.opacity <= 1)) &&
+    Array.isArray(s.points) &&
     s.points.length > 0 && s.points.length <= MAX_POINTS && s.points.every(isPoint);
 }
 

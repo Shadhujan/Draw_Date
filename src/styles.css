@@ -289,6 +289,22 @@ a { color: inherit; }
 .icon-action { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 11px; background: transparent; color: var(--muted); transition: background .25s, color .25s; }
 .icon-action:not(:disabled):hover { color: var(--accent-dark); background: var(--surface-tint); }
 .icon-action.save-action { color: var(--accent-dark); background: var(--surface-tint); }
+/* A quiet, tactile brush shelf: previews are drawn by the actual brush engine. */
+.brush-collection { border-top: 1px solid var(--hairline); margin-top: 11px; padding-top: 11px; }
+.brush-collection-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 8px; }
+.brush-collection-title { color: var(--quiet); font-size: 9px; font-weight: 850; letter-spacing: .115em; white-space: nowrap; }
+.brush-collection-title span { color: var(--accent); font-size: 12px; }
+.opacity-control { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 10px; font-weight: 750; }
+.opacity-control input { width: clamp(72px, 12vw, 118px); accent-color: var(--accent); cursor: pointer; }
+.opacity-control input:disabled { opacity: .3; cursor: not-allowed; }
+.opacity-control output { display: inline-block; min-width: 31px; color: var(--accent-dark); text-align: end; font-size: 10px; font-variant-numeric: tabular-nums; }
+.brush-choices { display: flex; gap: 7px; min-width: 0; padding: 2px 2px 9px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--accent-light) transparent; }
+.brush-option { display: flex; flex: 0 0 99px; flex-direction: column; justify-content: center; align-items: center; gap: 3px; min-width: 0; min-height: 68px; padding: 5px 5px 7px; border: 1px solid transparent; border-radius: 13px; background: var(--page); color: var(--muted); font: inherit; font-size: 10px; font-weight: 750; scroll-snap-align: start; transition: background .24s cubic-bezier(.32,.72,0,1), border-color .24s cubic-bezier(.32,.72,0,1), transform .24s cubic-bezier(.32,.72,0,1); }
+.brush-option:hover { transform: translateY(-2px); border-color: var(--accent-light); }
+.brush-option.active { background: var(--active-wash); border-color: var(--accent); color: var(--accent-dark); box-shadow: inset 0 0 0 1px var(--accent-light); }
+.brush-option:active { transform: scale(.98); }
+.brush-preview { display: block; width: 88px; height: 31px; pointer-events: none; }
+.brush-option:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .tools-bottom-row { display: flex; align-items: center; gap: 17px; padding: 13px 4px 2px; border-top: 1px solid var(--hairline); margin-top: 10px; }
 .palette-label { color: var(--quiet); font-size: 9px; font-weight: 850; letter-spacing: .11em; flex-shrink: 0; }
 .swatches { display: flex; align-items: center; gap: 9px; min-width: 0; }
@@ -374,7 +390,10 @@ a { color: inherit; }
   .tools-top-row { gap: 8px; }.tool-mode { padding: 3px; }.tool-btn { min-height: 37px; padding: 9px; }.tool-btn span { display: none; }
   .size-slider { gap: 5px; }.size-slider > span:first-child { display: none; }.size-slider input { width: clamp(47px, 17vw, 94px); }
   .icon-action { width: 37px; height: 37px; }.tool-actions { gap: 1px; }
-  .tools-bottom-row { gap: 11px; padding: 10px 0 1px; margin-top: 8px; }.palette-label { display: none; }
+  .tools-bottom-row { gap: 11px; padding: 10px 0 1px; margin-top: 8px; }
+  .brush-option { flex-basis: 94px; min-height: 64px; }
+  .opacity-control { gap: 6px; }
+  .opacity-control input { width: clamp(64px, 20vw, 88px); }.palette-label { display: none; }
   .swatches { gap: clamp(5px, 1.9vw, 11px); }
   .swatch { width: clamp(22px, 6vw, 25px); height: clamp(22px, 6vw, 25px); }
   .custom-color { width: 26px; height: 26px; }
@@ -389,6 +408,8 @@ a { color: inherit; }
   .template-option > svg:last-child { display: none; }
   .tool-btn { padding: 7px; }.tool-mode { gap: 0; }.size-slider input { width: 45px; }
   .swatches { gap: 5px; }
+  .opacity-control { gap: 4px; }
+  .opacity-control input { width: 62px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }

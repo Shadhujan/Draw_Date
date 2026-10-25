@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Download, Eraser, Eye,
   EyeOff, Heart, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, UsersRound,
@@ -6,8 +6,9 @@ import {
 import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
+import { brushChoices, paintStroke } from './brushes';
 import { GuideArt, templates } from './templates';
-import type { TemplateId, Tool } from './types';
+import type { BrushStyle, Stroke, TemplateId, Tool } from './types';
 import { useRoom } from './useRoom';
 
 type Theme = 'rose' | 'sage';
@@ -61,6 +62,28 @@ function ThemeSwitch({ theme, onChange }: { theme: Theme; onChange: (theme: Them
 
 function Avatar({ name, alt = false }: { name: string; alt?: boolean }) {
   return <span className={`avatar ${alt ? 'avatar-alt' : ''}`} title={name}>{name.trim().slice(0, 1).toUpperCase() || '?'}</span>;
+}
+
+function BrushPreview({ brush, color }: { brush: BrushStyle; color: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = ref.current?.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, 180, 64);
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const stroke: Stroke = {
+      id: `sample-${brush}`, by: 'preview', tool: 'pen', brush, color,
+      size: brush === 'airbrush' ? 11 : 8, opacity: 1,
+      points: [
+        { x: 7, y: 24, p: 0.35 }, { x: 21, y: 20, p: 0.55 },
+        { x: 35, y: 12, p: 0.95 }, { x: 52, y: 13, p: 0.9 },
+        { x: 71, y: 22, p: 0.45 }, { x: 83, y: 18, p: 0.65 },
+      ],
+    };
+    paintStroke(ctx, stroke);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }, [brush, color]);
+  return <canvas ref={ref} className="brush-preview" width={180} height={64} aria-hidden="true" />;
 }
 
 function Welcome({ room, theme, onThemeChange, onStart }: {
@@ -125,6 +148,8 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
 }) {
   const room = useRoom(roomId, name);
   const [tool, setTool] = useState<Tool>('pen');
+  const [brush, setBrush] = useState<BrushStyle>('ink');
+  const [opacity, setOpacity] = useState(100);
   const [color, setColor] = useState(colors[0].value);
   const [size, setSize] = useState(12);
   const [guideVisible, setGuideVisible] = useState(true);
@@ -185,7 +210,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               {guideVisible && <GuideArt template={room.board.template} className="guide-layer" />}
               <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
                 remoteDrafts={room.remoteDrafts} draftVersion={room.draftVersion} myId={room.myId}
-                tool={tool} color={color} size={size} disabled={!canDraw}
+                tool={tool} brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}
                 onStart={room.begin} onPoints={room.points} onEnd={room.end} onCursor={room.sendCursor} />
               {room.cursors.filter((cursor) => cursor.by !== room.myId).map((cursor) => (
                 <div className="remote-cursor" key={cursor.by} style={{ left: `${cursor.x / 10}%`, top: `${cursor.y / 7}%` }}>
@@ -207,10 +232,33 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                 <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => setTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
                 <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-label="Eraser" aria-pressed={tool === 'eraser'} onClick={() => setTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
               </div>
-              <label className="size-slider"><span>Brush size</span><input aria-label="Brush size" type="range" min={4} max={34} step={2} value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
+              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
               <div className="tool-actions">
                 <button className="icon-action" aria-label="Undo your last stroke" title="Undo your last stroke" disabled={!myStrokes} onClick={room.undo}><RotateCcw size={18} /></button>
                 <button className="icon-action save-action" aria-label="Download drawing as PNG" title="Download drawing as PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
+              </div>
+            </div>
+            <div className="brush-collection">
+              <div className="brush-collection-heading">
+                <span className="brush-collection-title">BRUSH LIBRARY <span aria-hidden="true">✳</span></span>
+                <label className="opacity-control">
+                  <span>Opacity</span>
+                  <input aria-label="Brush opacity" type="range" min={10} max={100} step={5}
+                    value={opacity} disabled={tool === 'eraser'} onChange={(event) => setOpacity(Number(event.target.value))} />
+                  <output>{opacity}%</output>
+                </label>
+              </div>
+              <div className="brush-choices" role="group" aria-label="Brush styles">
+                {brushChoices.map((choice) => (
+                  <button type="button" key={choice.id}
+                    className={`brush-option ${brush === choice.id && tool === 'pen' ? 'active' : ''}`}
+                    title={choice.description} aria-label={`${choice.name} brush: ${choice.description}`}
+                    aria-pressed={brush === choice.id && tool === 'pen'}
+                    onClick={() => { setBrush(choice.id); setTool('pen'); }}>
+                    <BrushPreview brush={choice.id} color={color} />
+                    <span>{choice.name}</span>
+                  </button>
+                ))}
               </div>
             </div>
             <div className="tools-bottom-row">
@@ -229,7 +277,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               <span className="palette-whisper">Every color feels like you ♡</span>
             </div>
           </div>
-          <p className="studio-footer-tip">Draw with your mouse, finger, or stylus. Your marks appear together in the same room.</p>
+          <p className="studio-footer-tip">Pick a texture and draw with your mouse, finger, or stylus. Your person sees the same brush.</p>
         </section>
 
         <aside className="studio-sidebar" aria-label="Your drawing date">
