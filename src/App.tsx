@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Download, Eraser, Eye,
-  EyeOff, Heart, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, UsersRound,
+  EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, Trash2, UsersRound, X,
 } from 'lucide-react';
 import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
 import { brushChoices, paintStroke } from './brushes';
 import { GuideArt, templates } from './templates';
-import type { BrushStyle, Stroke, TemplateId, Tool } from './types';
+import type { BrushStyle, CanvasMode, Stroke, TemplateId } from './types';
 import { useRoom } from './useRoom';
 
 type Theme = 'rose' | 'sage';
@@ -147,7 +147,8 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   onExit: () => void;
 }) {
   const room = useRoom(roomId, name);
-  const [tool, setTool] = useState<Tool>('pen');
+  const [tool, setTool] = useState<CanvasMode>('pen');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [brush, setBrush] = useState<BrushStyle>('ink');
   const [opacity, setOpacity] = useState(100);
   const [color, setColor] = useState(colors[0].value);
@@ -157,8 +158,25 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   const canvas = useRef<CanvasHandle>(null);
   const full = room.connection === 'full';
   const onlinePartner = useMemo(() => room.members.find((member) => member.id !== room.myId), [room.members, room.myId]);
-  const myStrokes = room.board.strokes.filter((stroke) => stroke.by === room.myId).length;
+  const visibleSelected = useMemo(() => {
+    const visible = new Set(room.board.strokes.filter((stroke) => !stroke.hidden).map((stroke) => stroke.id));
+    return selectedIds.filter((id) => visible.has(id));
+  }, [selectedIds, room.board.strokes]);
+  useEffect(() => {
+    if (visibleSelected.length !== selectedIds.length) setSelectedIds(visibleSelected);
+  }, [selectedIds, visibleSelected]);
   const canDraw = !full && room.connection !== 'error';
+
+  function chooseTool(next: CanvasMode) {
+    setTool(next);
+    if (next !== 'lasso') setSelectedIds([]);
+  }
+
+  function removeSelected() {
+    if (!canDraw || !visibleSelected.length) return;
+    room.deleteSelection(visibleSelected);
+    setSelectedIds([]);
+  }
 
   async function copyInvite() {
     try {
@@ -173,6 +191,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   function reset(template: TemplateId) {
     if (template === room.board.template && room.board.strokes.length === 0) return;
     if (room.board.strokes.length && !window.confirm('Start a fresh page for both of you? Save this one first if you want to keep it.')) return;
+    setSelectedIds([]);
     room.changeTemplate(template);
   }
 
@@ -210,7 +229,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               {guideVisible && <GuideArt template={room.board.template} className="guide-layer" />}
               <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
                 remoteDrafts={room.remoteDrafts} draftVersion={room.draftVersion} myId={room.myId}
-                tool={tool} brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}
+                mode={tool} selectedIds={visibleSelected} onSelectionChange={setSelectedIds}
+                onMoveSelection={room.moveSelection} onDeleteSelection={removeSelected}
+                brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}
                 onStart={room.begin} onPoints={room.points} onEnd={room.end} onCursor={room.sendCursor} />
               {room.cursors.filter((cursor) => cursor.by !== room.myId).map((cursor) => (
                 <div className="remote-cursor" key={cursor.by} style={{ left: `${cursor.x / 10}%`, top: `${cursor.y / 7}%` }}>
@@ -223,21 +244,39 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               {full && <div className="full-overlay"><UsersRound size={27} /><strong>This studio is for two.</strong><span>Both places are taken right now.</span></div>}
               {room.connection === 'error' && <div className="full-overlay"><strong>Connection lost</strong><span>Refresh to reconnect. Your local drawing is saved.</span></div>}
             </div>
-            <div className="canvas-footer"><span>Little strokes, big feelings ♡</span><span>{room.board.strokes.length} strokes</span></div>
+            <div className="canvas-footer"><span>{tool === 'lasso' ? 'Draw a loop, then drag the selected ink ♡' : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
           </div>
 
           <div className="tools-bar" role="toolbar" aria-label="Drawing tools">
             <div className="tools-top-row">
-              <div className="tool-mode" aria-label="Brush or eraser">
-                <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => setTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
-                <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-label="Eraser" aria-pressed={tool === 'eraser'} onClick={() => setTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
+              <div className="tool-mode" aria-label="Brush, eraser or lasso selection">
+                <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => chooseTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
+                <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-label="Eraser" aria-pressed={tool === 'eraser'} onClick={() => chooseTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
+                <button className={`tool-btn ${tool === 'lasso' ? 'selected' : ''}`} title="Lasso selection" aria-label="Lasso selection" aria-pressed={tool === 'lasso'} onClick={() => chooseTool('lasso')}><Lasso size={18} /><span>Lasso</span></button>
               </div>
-              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
+              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} disabled={tool === 'lasso'} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
               <div className="tool-actions">
-                <button className="icon-action" aria-label="Undo your last stroke" title="Undo your last stroke" disabled={!myStrokes} onClick={room.undo}><RotateCcw size={18} /></button>
+                <button className="icon-action" aria-label="Undo last action" title="Undo last action" disabled={!room.canUndo || !canDraw} onClick={room.undo}><RotateCcw size={18} /></button>
                 <button className="icon-action save-action" aria-label="Download drawing as PNG" title="Download drawing as PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
               </div>
             </div>
+            {tool === 'lasso' ? (
+              <div className="selection-shelf" role="group" aria-label="Lasso selection actions">
+                <span className="selection-symbol" aria-hidden="true"><Lasso size={20} /></span>
+                <div className="selection-copy">
+                  <strong>{visibleSelected.length ? `${visibleSelected.length} ${visibleSelected.length === 1 ? 'stroke' : 'strokes'} selected` : 'Circle a little doodle'}</strong>
+                  <span>{visibleSelected.length ? 'Drag the dotted outline to move it.' : 'Draw a loop around your brush strokes.'}</span>
+                </div>
+                {visibleSelected.length > 0 && <div className="selection-actions">
+                  <button type="button" disabled={!canDraw} onClick={() => {
+                    const copies = room.duplicateSelection(visibleSelected);
+                    if (copies.length) setSelectedIds(copies);
+                  }}><Copy size={15} /> <span>Duplicate</span></button>
+                  <button type="button" disabled={!canDraw} className="selection-delete" onClick={removeSelected}><Trash2 size={15} /> <span>Delete</span></button>
+                  <button type="button" onClick={() => setSelectedIds([])}><X size={15} /> <span>Clear</span></button>
+                </div>}
+              </div>
+            ) : <>
             <div className="brush-collection">
               <div className="brush-collection-heading">
                 <span className="brush-collection-title">BRUSH LIBRARY <span aria-hidden="true">✳</span></span>
@@ -254,7 +293,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                     className={`brush-option ${brush === choice.id && tool === 'pen' ? 'active' : ''}`}
                     title={choice.description} aria-label={`${choice.name} brush: ${choice.description}`}
                     aria-pressed={brush === choice.id && tool === 'pen'}
-                    onClick={() => { setBrush(choice.id); setTool('pen'); }}>
+                    onClick={() => { setBrush(choice.id); chooseTool('pen'); }}>
                     <BrushPreview brush={choice.id} color={color} />
                     <span>{choice.name}</span>
                   </button>
@@ -268,16 +307,19 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                   aria-pressed={color === option.value && tool === 'pen'}
                   className={`swatch ${color === option.value && tool === 'pen' ? 'active' : ''}`}
                   style={{ backgroundColor: option.value }}
-                  onClick={() => { setColor(option.value); setTool('pen'); }} />)}
+                  onClick={() => { setColor(option.value); chooseTool('pen'); }} />)}
                 <label className="custom-color" title="Choose your own ink color">
-                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); setTool('pen'); }} />
+                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); chooseTool('pen'); }} />
                   <span aria-hidden="true">+</span>
                 </label>
               </div>
               <span className="palette-whisper">Every color feels like you ♡</span>
             </div>
+            </>}
           </div>
-          <p className="studio-footer-tip">Pick a texture and draw with your mouse, finger, or stylus. Your person sees the same brush.</p>
+          <p className="studio-footer-tip">{tool === 'lasso'
+            ? 'Lasso selects complete brush strokes. Move, duplicate or delete them together — your person sees each edit.'
+            : 'Pick a texture and draw with your mouse, finger, or stylus. Your person sees the same brush.'}</p>
         </section>
 
         <aside className="studio-sidebar" aria-label="Your drawing date">

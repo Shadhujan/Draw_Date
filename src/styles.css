@@ -475,3 +475,49 @@ a { color: inherit; }
   .hero-world, .hero-plush-bears, .hero-vine, .hero-css-sparkle { animation: none !important; }
   .hero-plush-bears { transform: none; translate: 0; scale: 1; }
 }
+
+/* Lasso is a focused temporary mode, not an additional noisy toolbar. */
+.drawing-canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -4px; }
+.size-slider input:disabled { opacity: .35; }
+.selection-shelf {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  min-height: 76px; margin-top: 12px; padding: 12px 14px;
+  background: var(--surface-tint); border-radius: 16px;
+  box-shadow: inset 0 1px 0 #fffefd;
+}
+.selection-symbol {
+  display: grid; place-items: center; flex: 0 0 42px; width: 42px; height: 42px;
+  border-radius: 14px; background: var(--surface); color: var(--accent-dark);
+  box-shadow: 0 4px 12px var(--accent-shadow);
+}
+.selection-copy { display: flex; flex-direction: column; gap: 4px; flex: 1 1 170px; min-width: 0; }
+.selection-copy strong { font-size: 12px; font-weight: 800; color: var(--ink); }
+.selection-copy > span { font-size: 10px; line-height: 1.5; color: var(--muted); }
+.selection-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.selection-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 38px; border: 1px solid var(--hairline); border-radius: 12px;
+  padding: 8px 12px; background: var(--surface); color: var(--accent-dark);
+  font-size: 11px; font-weight: 800;
+  transition: transform .25s cubic-bezier(.32,.72,0,1), background .25s;
+}
+.selection-actions button:hover:not(:disabled) { transform: translateY(-1px); background: var(--active-wash); }
+.selection-actions button:active { transform: scale(.97); }
+.selection-actions .selection-delete { color: #a75e6c; }
+.app-theme[data-theme='sage'] .selection-actions .selection-delete { color: #866b62; }
+@media (max-width: 680px) {
+  .selection-shelf { gap: 8px; padding: 10px; }
+  .selection-symbol { width: 36px; height: 36px; flex-basis: 36px; border-radius: 11px; }
+  .selection-copy { flex-basis: 175px; }
+  .selection-actions { flex-basis: 100%; margin-left: 0; }
+  .selection-actions button { flex: 1; min-width: 0; padding: 8px; }
+  .tools-top-row:has(.tool-btn[aria-label='Lasso selection']) { flex-wrap: nowrap; }
+}
+@media (max-width: 360px) {
+  .selection-shelf { border-radius: 12px; }
+  .selection-actions button { font-size: 10px; gap: 4px; }
+  .tools-top-row { gap: 6px; }
+  .size-slider { gap: 3px; }
+  .size-slider input { width: 40px; }
+  .icon-action { width: 34px; height: 36px; }
+}

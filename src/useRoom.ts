@@ -1,10 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appendStroke, isPoint, isStroke, isTemplate, loadBoard, sanitizeBoard, saveBoard } from './board';
 import { joinChannel, realtimeConfigured } from './realtime';
-import type { BoardMessage, BoardState, Cursor, Partner, Point, Stroke, TemplateId } from './types';
+import { applySelectionEdit, isSelectionEdit, limitTranslation, MAX_SELECTION } from './selection';
+import type { BoardMessage, BoardState, Cursor, Partner, Point, SelectionEdit, Stroke, TemplateId } from './types';
 
 type Connection = 'solo' | 'connecting' | 'connected' | 'error' | 'full';
 type Reaction = { id: string; value: string; name: string };
+type EditIntent =
+  | { action: 'move'; ids: string[]; dx: number; dy: number }
+  | { action: 'visibility'; ids: string[]; visible: boolean }
+  | { action: 'duplicate'; sources: string[]; copies: string[]; dx: number; dy: number };
+type UndoRecord =
+  | { action: 'stroke'; id: string }
+  | { action: 'move'; ids: string[]; dx: number; dy: number }
+  | { action: 'visibility'; ids: string[]; visible: boolean };
+
+function latestStroke(local: Stroke | undefined, incoming: Stroke): Stroke {
+  if (!local) return incoming;
+  const localStamp = local.lastEdit ?? 0;
+  const incomingStamp = incoming.lastEdit ?? 0;
+  if (localStamp > incomingStamp ||
+      (localStamp === incomingStamp && (local.lastEditor ?? '') > (incoming.lastEditor ?? ''))) return local;
+  return incoming;
+}
+
 
 export function useRoom(roomId: string, displayName: string) {
   const myId = useRef(crypto.randomUUID()).current;
@@ -17,6 +36,11 @@ export function useRoom(roomId: string, displayName: string) {
   const remoteDrafts = useRef(new Map<string, Stroke>());
   const [draftVersion, setDraftVersion] = useState(0);
   const network = useRef<ReturnType<typeof joinChannel>>(null);
+  const seenEdits = useRef(new Set<string>());
+  const logicalStamp = useRef(Date.now());
+  const history = useRef<UndoRecord[]>([]);
+  const [undoDepth, setUndoDepth] = useState(0);
+
   const partner: Partner = {
     id: myId,
     name: displayName,
@@ -34,6 +58,22 @@ export function useRoom(roomId: string, displayName: string) {
   const send = useCallback((message: BoardMessage) => {
     network.current?.send(message);
   }, []);
+
+  const remember = useCallback((action: UndoRecord) => {
+    history.current = [...history.current.slice(-79), action];
+    setUndoDepth(history.current.length);
+  }, []);
+
+  // A move/edit is a small, atomic message. We don't resend all the pixels or
+  // 2,000 individual pointer coordinates every time a selected stroke moves.
+  const publishEdit = useCallback((intent: EditIntent) => {
+    const edit = { ...intent, revision: boardRef.current.revision,
+      stamp: ++logicalStamp.current, opId: crypto.randomUUID() } as SelectionEdit;
+    updateBoard((current) => ({ ...current,
+      strokes: applySelectionEdit(current.strokes, edit, myId) }));
+    send({ kind: 'selection-edit', from: myId, edit });
+  }, [myId, send, updateBoard]);
+
 
   useEffect(() => {
     if (!realtimeConfigured) return;
@@ -61,14 +101,22 @@ export function useRoom(roomId: string, displayName: string) {
             if (message.to !== myId) break;
             const incoming = sanitizeBoard(message.board);
             if (!incoming) break;
+            if (incoming.revision > boardRef.current.revision) {
+              history.current = [];
+              setUndoDepth(0);
+            }
             updateBoard((current) => {
               if (incoming.revision > current.revision) return incoming;
               if (incoming.revision < current.revision) return current;
+              const ours = new Map(current.strokes.map((stroke) => [stroke.id, stroke]));
               const known = new Set(incoming.strokes.map((stroke) => stroke.id));
+              const merged = incoming.strokes.map((stroke) => latestStroke(ours.get(stroke.id), stroke));
               const unshared = current.strokes.filter((stroke) => !known.has(stroke.id));
               return {
                 ...incoming,
-                strokes: [...incoming.strokes, ...unshared].slice(-300),
+                // Hidden status and transforms survive rejoin instead of being
+                // resurrected by the previous union-only reconciliation.
+                strokes: [...merged, ...unshared].slice(-300),
               };
             });
             break;
@@ -99,14 +147,27 @@ export function useRoom(roomId: string, displayName: string) {
             break;
           }
           case 'undo':
+            // Compatibility with the original MVP's undo events.
             updateBoard((current) => ({ ...current, strokes: current.strokes.filter((stroke) => stroke.id !== message.id) }));
             break;
+          case 'selection-edit': {
+            if (typeof message.from !== 'string' || message.from.length > 128 ||
+                !isSelectionEdit(message.edit) || seenEdits.current.has(message.edit.opId) ||
+                message.edit.revision !== boardRef.current.revision) break;
+            seenEdits.current.add(message.edit.opId);
+            if (seenEdits.current.size > 500) seenEdits.current.clear();
+            logicalStamp.current = Math.max(logicalStamp.current, message.edit.stamp);
+            updateBoard((current) => ({ ...current,
+              strokes: applySelectionEdit(current.strokes, message.edit, message.from) }));
+            break;
+          }
           case 'reset':
-            if (!isTemplate(message.template) || !Number.isSafeInteger(message.revision)) break;
-            updateBoard((current) => message.revision > current.revision
-              ? { template: message.template, strokes: [], revision: message.revision }
-              : current);
+            if (!isTemplate(message.template) || !Number.isSafeInteger(message.revision) ||
+                message.revision <= boardRef.current.revision) break;
+            updateBoard(() => ({ template: message.template, strokes: [], revision: message.revision }));
             remoteDrafts.current.clear();
+            history.current = [];
+            setUndoDepth(0);
             setDraftVersion((current) => current + 1);
             break;
           case 'cursor':
@@ -160,19 +221,55 @@ export function useRoom(roomId: string, displayName: string) {
 
   const end = useCallback((stroke: Stroke) => {
     addStroke(stroke);
+    remember({ action: 'stroke', id: stroke.id });
     send({ kind: 'stroke-end', from: myId, id: stroke.id });
-  }, [send, addStroke, myId]);
+  }, [send, addStroke, myId, remember]);
 
   const undo = useCallback(() => {
-    const mine = [...boardRef.current.strokes].reverse().find((stroke) => stroke.by === myId);
-    if (!mine) return;
-    updateBoard((current) => ({ ...current, strokes: current.strokes.filter((stroke) => stroke.id !== mine.id) }));
-    send({ kind: 'undo', from: myId, id: mine.id });
-  }, [updateBoard, send, myId]);
+    const last = history.current.pop();
+    if (last) setUndoDepth(history.current.length);
+    if (last?.action === 'move') {
+      publishEdit({ action: 'move', ids: last.ids, dx: last.dx, dy: last.dy });
+    } else if (last?.action === 'visibility') {
+      publishEdit({ action: 'visibility', ids: last.ids, visible: last.visible });
+    } else {
+      const id = last?.action === 'stroke' ? last.id :
+        [...boardRef.current.strokes].reverse().find((stroke) => stroke.by === myId && !stroke.hidden)?.id;
+      if (id) publishEdit({ action: 'visibility', ids: [id], visible: false });
+    }
+  }, [myId, publishEdit]);
+
+  const moveSelection = useCallback((ids: string[], dx: number, dy: number) => {
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    if (!live.length || live.length > MAX_SELECTION) return;
+    const delta = limitTranslation(boardRef.current.strokes, live, dx, dy);
+    if (Math.hypot(delta.dx, delta.dy) <= 0.6) return;
+    publishEdit({ action: 'move', ids: live, dx: delta.dx, dy: delta.dy });
+    remember({ action: 'move', ids: live, dx: -delta.dx, dy: -delta.dy });
+  }, [publishEdit, remember]);
+
+  const deleteSelection = useCallback((ids: string[]) => {
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    if (!live.length || live.length > MAX_SELECTION) return;
+    publishEdit({ action: 'visibility', ids: live, visible: false });
+    remember({ action: 'visibility', ids: live, visible: true });
+  }, [publishEdit, remember]);
+
+  const duplicateSelection = useCallback((ids: string[]): string[] => {
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    if (!live.length || live.length > MAX_SELECTION) return [];
+    const copies = live.map(() => crypto.randomUUID());
+    const delta = limitTranslation(boardRef.current.strokes, live, 24, 24);
+    publishEdit({ action: 'duplicate', sources: live, copies, dx: delta.dx, dy: delta.dy });
+    remember({ action: 'visibility', ids: copies, visible: false });
+    return copies;
+  }, [publishEdit, remember]);
 
   const changeTemplate = useCallback((template: TemplateId) => {
     const revision = Math.max(boardRef.current.revision + 1, Date.now());
     updateBoard(() => ({ template, strokes: [], revision }));
+    history.current = [];
+    setUndoDepth(0);
     remoteDrafts.current.clear();
     setDraftVersion((current) => current + 1);
     send({ kind: 'reset', from: myId, template, revision });
@@ -190,6 +287,8 @@ export function useRoom(roomId: string, displayName: string) {
   return {
     board, connection, members, cursors, reactions, myId,
     remoteDrafts: remoteDrafts.current, draftVersion,
-    begin, points, end, undo, changeTemplate, sendCursor, react,
+    begin, points, end, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => stroke.by === myId && !stroke.hidden),
+    moveSelection, deleteSelection, duplicateSelection,
+    changeTemplate, sendCursor, react,
   };
 }

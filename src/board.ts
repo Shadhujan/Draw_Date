@@ -38,6 +38,9 @@ export function isStroke(value: unknown): value is Stroke {
     typeof s.size === 'number' && Number.isFinite(s.size) && s.size > 0 && s.size <= 80 &&
     (s.brush === undefined || BRUSH_IDS.some((brush) => brush === s.brush)) &&
     (s.opacity === undefined || (typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0.1 && s.opacity <= 1)) &&
+    (s.hidden === undefined || typeof s.hidden === 'boolean') &&
+    (s.lastEdit === undefined || (typeof s.lastEdit === 'number' && Number.isSafeInteger(s.lastEdit) && s.lastEdit >= 0)) &&
+    (s.lastEditor === undefined || (typeof s.lastEditor === 'string' && s.lastEditor.length < 128)) &&
     Array.isArray(s.points) &&
     s.points.length > 0 && s.points.length <= MAX_POINTS && s.points.every(isPoint);
 }
