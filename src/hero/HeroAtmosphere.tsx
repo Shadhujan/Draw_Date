@@ -133,20 +133,7 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
       }
       makePencil(theme === 'sage' ? 0xaad4aa : 0xf3a8c7, -.62, -.24, -.58, .2);
       makePencil(theme === 'sage' ? 0xd4cf86 : 0xa9c7a1, .64, .02, .62, 1.8);
-      // Curved three-dimensional ribbons wrap around the artwork, rather than
-      // drifting randomly in front of the bears' faces.
-      const ribbons: InstanceType<typeof THREE.Mesh>[] = [];
-      for (let i = 0; i < 2; i++) {
-        const points = Array.from({length: 28}, (_, j) => {
-          const a = j / 27 * Math.PI * 1.47 + i * Math.PI;
-          return new THREE.Vector3(Math.sin(a) * (1.1 + .13*i), Math.cos(a) * (.58+.1*i) -.04, -.35 - i*.16);
-        });
-        const curve = new THREE.CatmullRomCurve3(points);
-        const geometry = new THREE.TubeGeometry(curve, 86, .011 + .006*i, 6, false);
-        const material = new THREE.MeshBasicMaterial({color:theme==='sage'?0xc5e3ac:0xffe8c1,transparent:true,opacity:.61,depthWrite:false});
-        const mesh=new THREE.Mesh(geometry,material);scene.add(mesh);ribbons.push(mesh);
-        ownedGeometry.push(geometry);ownedMaterials.push(material);
-      }
+      // Keep the two plush mascots' faces clear: no orbit rings or trails.
       const orbs: { mesh: InstanceType<typeof THREE.Mesh>; x:number;y:number;phase:number }[]=[];
       const orbGeometry=new THREE.SphereGeometry(.065,12,8);ownedGeometry.push(orbGeometry);
       const orbMat=new THREE.MeshPhysicalMaterial({color:theme==='sage'?0xe8ffcb:0xffd9ed,roughness:.13,metalness:.03,clearcoat:1,transparent:true,opacity:.85});ownedMaterials.push(orbMat);
@@ -211,7 +198,6 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
           mesh.position.set(x*width + Math.sin(t*.47+phase)*.14, y*height + Math.sin(t*.65+phase)*.16, -.22);
           mesh.scale.setScalar(.65 + .28*(1+Math.sin(t*1.3+phase)));
         });
-        ribbons.forEach((mesh,i)=>{mesh.rotation.z=Math.sin(t*.26+i)*.07;});
         // Keep the depth motion extremely gentle so the welcome screen stays calm.
         scene.rotation.y += (pointerX * 0.075 - scene.rotation.y) * 0.035;
         scene.rotation.x += (-pointerY * 0.06 - scene.rotation.x) * 0.035;

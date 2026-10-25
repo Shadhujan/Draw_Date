@@ -38,6 +38,20 @@ export function buildLayers(strokes: readonly Stroke[], width: number, height: n
   return layers;
 }
 
+/** Incrementally paint a newly appended stroke. Edits, resets, and any
+ * reordering still trigger a complete rebuild so no stale pixels remain. */
+export function advanceLayers(
+  layers: LayerSet, before: readonly Stroke[], after: readonly Stroke[], width: number, height: number,
+): LayerSet {
+  if (after.length !== before.length + 1 ||
+      !before.every((stroke, i) => stroke === after[i])) return buildLayers(after, width, height);
+  const stroke = after[after.length - 1];
+  const seat = stroke.owner ?? 'legacy';
+  const ctx = layers[seat].getContext('2d');
+  if (ctx) clippedLayer(ctx, seat, width, height, () => paintStroke(ctx, stroke));
+  return layers;
+}
+
 export function compositeLayers(ctx: CanvasRenderingContext2D, layers: LayerSet,
   extras: readonly Stroke[] = []) {
   ctx.save();

@@ -1,10 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { paintStroke } from './brushes';
-import { buildLayers, compositeLayers, renderArtwork, type LayerSet } from './layers';
+import { advanceLayers, buildLayers, compositeLayers, type LayerSet } from './layers';
 import { inSeat, seatBounds } from './ownership';
 import { colorOverPaper } from './colorPaint';
 import { limitTranslation, selectionBounds, strokesInsideLasso } from './selection';
 import { lassoPaintPolygon } from './lassoPaint';
+import { chronologicalStrokes } from './sceneOrder';
 import type { BlendMode, BrushStyle, CanvasMode, Point, Seat, Stroke } from './types';
 
 const WORLD_W = 1000;
@@ -41,7 +42,7 @@ type Props = {
   onLassoPaint: (outline: Point[]) => void;
   size: number;
   disabled?: boolean;
-  onStart: (stroke: Stroke) => void;
+  onStart: (stroke: Stroke) => Stroke | void;
   onPoints: (id: string, points: Point[]) => void;
   onEnd: (stroke: Stroke) => void;
   onCursor: (x: number, y: number) => void;
@@ -116,6 +117,48 @@ function drawLiveLasso(ctx: CanvasRenderingContext2D, points: readonly Point[],
   ctx.restore();
 }
 
+/** Rasterize a guide with its *computed* styling: classes in the app CSS
+ * are not available inside a serialized standalone SVG image. */
+async function drawGuideForExport(
+  ctx: CanvasRenderingContext2D, guide: SVGSVGElement, width: number, height: number,
+) {
+  const clone = guide.cloneNode(true) as SVGSVGElement;
+  function inlineComputed(source: Element, target: Element) {
+    const computed = getComputedStyle(source);
+    for (const property of [
+      'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
+      'stroke-linejoin', 'opacity', 'visibility', 'display',
+    ]) {
+      (target as SVGElement).style.setProperty(property, computed.getPropertyValue(property));
+    }
+    for (let i = 0; i < source.children.length; i++) {
+      inlineComputed(source.children[i], target.children[i]);
+    }
+  }
+  inlineComputed(guide, clone);
+  // The CSS guide's overall opacity must only be applied once.
+  const cssOpacity = Number.parseFloat(getComputedStyle(guide).opacity);
+  const opacity = Number.isFinite(cssOpacity) ? Math.max(0, Math.min(1, cssOpacity)) : 1;
+  clone.style.opacity = '1';
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', String(width));
+  clone.setAttribute('height', String(height));
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], {
+    type: 'image/svg+xml;charset=utf-8',
+  }));
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.restore();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCanvas(props, externalRef) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const strokesRef = useRef(props.strokes);
@@ -129,6 +172,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   const renderRequest = useRef(0);
   const latestRender = useRef<() => void>(() => {});
   const painted = useRef<{ layers: LayerSet; strokes: Stroke[]; width: number; height: number } | null>(null);
+  // The pixel-exact pigment snapshot is shared by the live canvas and PNG export.
+  const artworkSnapshot = useRef<HTMLCanvasElement | null>(null);
   const lastLassoAt = useRef(0);
   strokesRef.current = props.strokes;
   drafts.current = props.remoteDrafts;
@@ -137,6 +182,14 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     const element = canvas.current;
     const ctx = element?.getContext('2d');
     if (!element || !ctx) return;
+    const artwork = artworkSnapshot.current ?? document.createElement('canvas');
+    if (artwork.width !== element.width || artwork.height !== element.height) {
+      artwork.width = element.width;
+      artwork.height = element.height;
+    }
+    artworkSnapshot.current = artwork;
+    const artworkCtx = artwork.getContext('2d');
+    if (!artworkCtx) return;
     const moving = selectionGesture.current?.kind === 'drag' ? selectionGesture.current : null;
     const painting = selectionGesture.current?.kind === 'paint' ? selectionGesture.current : null;
     const remoteMoves = props.remoteLassos.filter((preview) => preview.mode === 'drag' && preview.ids?.length);
@@ -151,7 +204,16 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
         points: path,
       });
     }
-    if (moving || remoteMoves.length) {
+    // A partner can finish a newer mark while another brush is still moving.
+    // In that case, preview the active brush at its *actual* creation depth;
+    // otherwise it would jump behind the new mark at pointer-up.
+    const newest = strokesRef.current[strokesRef.current.length - 1]?.createdAt ?? 0;
+    const interleaved = previews.some((stroke) => stroke.createdAt !== undefined && stroke.createdAt < newest);
+    if (!moving && !remoteMoves.length && interleaved) {
+      compositeLayers(artworkCtx, buildLayers(
+        chronologicalStrokes([...strokesRef.current, ...previews]), element.width, element.height,
+      ));
+    } else if (moving || remoteMoves.length) {
       // A transient selection move is rendered separately; the canonical board
       // is not mutated until pointer-up, and the artwork is still owner-clipped.
       const displaced = strokesRef.current.map((stroke) => {
@@ -168,19 +230,24 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
           }))),
         };
       });
-      compositeLayers(ctx, buildLayers(displaced, element.width, element.height), previews);
+      compositeLayers(artworkCtx, buildLayers(displaced, element.width, element.height), previews);
     } else {
       const cached = painted.current;
       if (!cached || cached.strokes !== strokesRef.current ||
           cached.width !== element.width || cached.height !== element.height) {
+        const layers = cached && cached.width === element.width && cached.height === element.height
+          ? advanceLayers(cached.layers, cached.strokes, strokesRef.current, element.width, element.height)
+          : buildLayers(strokesRef.current, element.width, element.height);
         painted.current = {
-          layers: buildLayers(strokesRef.current, element.width, element.height),
-          strokes: strokesRef.current, width: element.width, height: element.height,
+          layers, strokes: strokesRef.current, width: element.width, height: element.height,
         };
       }
-      if (painted.current) compositeLayers(ctx, painted.current.layers, previews);
+      if (painted.current) compositeLayers(artworkCtx, painted.current.layers, previews);
     }
     ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, element.width, element.height);
+    ctx.drawImage(artwork, 0, 0);
     ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
     if (props.mode === 'lasso' && props.seat) {
       const editable = strokesRef.current.filter((stroke) => stroke.owner === props.seat);
@@ -236,6 +303,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       element.width = width;
       element.height = height;
       painted.current = null;
+      artworkSnapshot.current = null;
       scheduleRender();
     };
     const observer = new ResizeObserver(resize);
@@ -253,37 +321,32 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
 
   useImperativeHandle(externalRef, () => ({
     async save(guide: SVGSVGElement | null) {
-      if (!canvas.current) return;
+      // Render the same pigment snapshot used by the live canvas. This includes
+      // in-progress local and remote strokes, unlike the old export that only
+      // replayed committed events at a different resolution.
+      latestRender.current();
+      const artwork = artworkSnapshot.current;
+      if (!artwork || !artwork.width || !artwork.height) return;
+      // Freeze the exact live pigment pixels at the click. SVG decoding is
+      // async; later strokes must not sneak into this downloaded snapshot.
+      const frozen = document.createElement('canvas');
+      frozen.width = artwork.width;
+      frozen.height = artwork.height;
+      const frozenCtx = frozen.getContext('2d');
+      if (!frozenCtx) return;
+      frozenCtx.drawImage(artwork, 0, 0);
       const out = document.createElement('canvas');
-      out.width = 1600;
-      out.height = 1120;
+      out.width = artwork.width;
+      out.height = artwork.height;
       const ctx = out.getContext('2d');
       if (!ctx) return;
-      ctx.fillStyle = '#fffdfa';
-      ctx.fillRect(0, 0, 1600, 1120);
+      ctx.fillStyle = '#fffdfb';
+      ctx.fillRect(0, 0, out.width, out.height);
       if (guide) {
-        try {
-          const svg = new XMLSerializer().serializeToString(guide);
-          const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-          try {
-            const image = new Image();
-            image.src = svgUrl;
-            await image.decode();
-            ctx.globalAlpha = 0.45;
-            ctx.drawImage(image, 0, 0, 1600, 1120);
-            ctx.globalAlpha = 1;
-          } finally { URL.revokeObjectURL(svgUrl); }
-        } catch { /* Keep the ink even if exporting the guide fails. */ }
+        try { await drawGuideForExport(ctx, guide, out.width, out.height); }
+        catch { /* The drawing must still download if the guide cannot rasterize. */ }
       }
-      // Both transparent ownership layers are composed after painting the paper.
-      // Erasing is confined to its owner's pigment, never the paper or partner.
-      const ink = document.createElement('canvas');
-      ink.width = out.width;
-      ink.height = out.height;
-      const inkCtx = ink.getContext('2d');
-      if (!inkCtx) return;
-      renderArtwork(inkCtx, strokesRef.current);
-      ctx.drawImage(ink, 0, 0);
+      ctx.drawImage(frozen, 0, 0);
       const a = document.createElement('a');
       a.href = out.toDataURL('image/png');
       a.download = `our-doodle-${new Date().toISOString().slice(0, 10)}.png`;
@@ -355,6 +418,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     if (props.mode !== 'pen' && props.mode !== 'eraser') return;
     const stroke: Stroke = {
       id: crypto.randomUUID(), by: props.myId, owner: props.seat, tool: props.mode,
+      createdAt: Date.now(),
       color: props.color, size: props.mode === 'eraser' ? Math.min(80, props.size * 2.3) : props.size,
       brush: props.brush, opacity: props.mode === 'eraser' ? 1 : props.opacity,
       ...(props.mode === 'pen' && props.gradientTo ? { gradient: { to: props.gradientTo, angle: props.gradientAngle } } : {}),
@@ -365,7 +429,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     pointerId.current = event.pointerId;
     pending.current = [];
     event.currentTarget.setPointerCapture(event.pointerId);
-    props.onStart(stroke);
+    const stamped = props.onStart(stroke);
+    if (stamped) current.current = stamped;
     scheduleRender();
   }
 

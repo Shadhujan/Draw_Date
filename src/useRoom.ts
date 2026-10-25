@@ -3,6 +3,9 @@ import { appendStroke, isPoint, isStroke, isTemplate, loadBoard, sanitizeBoard, 
 import { joinChannel, realtimeConfigured } from './realtime';
 import { canEditStroke, inSeat, isSeat, otherSeat, ownedFill, pointsInSeat } from './ownership';
 import { validLessonStep } from './guidedLesson';
+import { mergeStrokes } from './sceneOrder';
+import { loadDurableBoard } from './boardStorage';
+import { receiveSnapshotPart, snapshotPackets, type IncomingSnapshot } from './boardSync';
 import { applySelectionEdit, isSelectionEdit, limitTranslation, MAX_SELECTION } from './selection';
 import type { BoardMessage, BoardState, Cursor, Partner, Point, Seat, SelectionEdit, Stroke, TemplateId } from './types';
 
@@ -16,16 +19,6 @@ type UndoRecord =
   | { action: 'stroke'; id: string }
   | { action: 'move'; ids: string[]; dx: number; dy: number }
   | { action: 'visibility'; ids: string[]; visible: boolean };
-
-function latestStroke(local: Stroke | undefined, incoming: Stroke): Stroke {
-  if (!local) return incoming;
-  const localStamp = local.lastEdit ?? 0;
-  const incomingStamp = incoming.lastEdit ?? 0;
-  if (localStamp > incomingStamp ||
-      (localStamp === incomingStamp && (local.lastEditor ?? '') > (incoming.lastEditor ?? ''))) return local;
-  return incoming;
-}
-
 
 export function useRoom(roomId: string, displayName: string) {
   const myId = useRef(crypto.randomUUID()).current;
@@ -53,6 +46,7 @@ export function useRoom(roomId: string, displayName: string) {
   const lassoTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const network = useRef<ReturnType<typeof joinChannel>>(null);
   const seenEdits = useRef(new Set<string>());
+  const incomingSnapshots = useRef(new Map<string, IncomingSnapshot>());
   const logicalStamp = useRef(Date.now());
   const history = useRef<UndoRecord[]>([]);
   const [undoDepth, setUndoDepth] = useState(0);
@@ -71,9 +65,63 @@ export function useRoom(roomId: string, displayName: string) {
     saveBoard(roomId, next);
   }, [roomId]);
 
+  useEffect(() => {
+    let active = true;
+    void loadDurableBoard(roomId).then((stored) => {
+      if (!active) return;
+      const valid = sanitizeBoard(stored);
+      if (valid) {
+        for (const stroke of valid.strokes) logicalStamp.current = Math.max(logicalStamp.current, stroke.createdAt ?? 0);
+        updateBoard((current) => {
+          if (valid.revision > current.revision) return valid;
+          if (valid.revision < current.revision) return current;
+          return { ...current, strokes: mergeStrokes(current.strokes, valid.strokes) };
+        });
+        // A recovered large offline drawing needs a fresh two-way merge.
+        network.current?.send({ kind: 'state-request', from: myId });
+      } else {
+        // Migrate existing localStorage rooms on the next successful load.
+        updateBoard((current) => current);
+      }
+    });
+    return () => { active = false; };
+  }, [roomId, myId, updateBoard]);
+
   const send = useCallback((message: BoardMessage) => {
     network.current?.send(message);
   }, []);
+
+  // Send large snapshots in serial pieces, below the free Realtime payload
+  // limit. Returning only the last 300 marks used to corrupt long drawings.
+  const sendSnapshot = useCallback(async (kind: 'state' | 'state-sync', to: string, snapshot: BoardState) => {
+    let packets: BoardMessage[];
+    try { packets = snapshotPackets(kind, myId, to, snapshot); }
+    catch (error) { console.warn('Draw Date could not prepare room history:', error); return; }
+    for (const packet of packets) {
+      if (!await network.current?.send(packet)) return;
+      if (packets.length > 1) await new Promise<void>((resolve) => setTimeout(resolve, 15));
+    }
+  }, [myId]);
+
+  const acceptSnapshot = useCallback((kind: 'state' | 'state-sync', from: string, incoming: BoardState) => {
+    for (const stroke of incoming.strokes) logicalStamp.current = Math.max(logicalStamp.current, stroke.createdAt ?? 0);
+    if (incoming.revision > boardRef.current.revision) {
+      history.current = [];
+      setUndoDepth(0);
+    }
+    updateBoard((current) => {
+      if (incoming.revision > current.revision) return incoming;
+      if (incoming.revision < current.revision) return current;
+      const aStamp = incoming.lessonStamp ?? 0;
+      const bStamp = current.lessonStamp ?? 0;
+      const newer = aStamp > bStamp || (aStamp === bStamp &&
+        (incoming.lessonActor ?? '') >= (current.lessonActor ?? '')) ? incoming : current;
+      return { ...incoming, lessonStep: newer.lessonStep ?? 0,
+        lessonStamp: newer.lessonStamp, lessonActor: newer.lessonActor,
+        strokes: mergeStrokes(current.strokes, incoming.strokes) };
+    });
+    if (kind === 'state') void sendSnapshot('state-sync', from, boardRef.current);
+  }, [sendSnapshot, updateBoard]);
 
   const remember = useCallback((action: UndoRecord) => {
     history.current = [...history.current.slice(-79), action];
@@ -112,42 +160,18 @@ export function useRoom(roomId: string, displayName: string) {
         if (!active || !message || message.from === myId) return;
         switch (message.kind) {
           case 'state-request':
-            network.current?.send({ kind: 'state', from: myId, to: message.from, board: boardRef.current });
+            void sendSnapshot('state', message.from, boardRef.current);
             break;
           case 'state':
           case 'state-sync': {
             if (message.to !== myId) break;
             const incoming = sanitizeBoard(message.board);
-            if (!incoming) break;
-            if (incoming.revision > boardRef.current.revision) {
-              history.current = [];
-              setUndoDepth(0);
-            }
-            updateBoard((current) => {
-              if (incoming.revision > current.revision) return incoming;
-              if (incoming.revision < current.revision) return current;
-              const ours = new Map(current.strokes.map((stroke) => [stroke.id, stroke]));
-              const known = new Set(incoming.strokes.map((stroke) => stroke.id));
-              const merged = incoming.strokes.map((stroke) => latestStroke(ours.get(stroke.id), stroke));
-              const unshared = current.strokes.filter((stroke) => !known.has(stroke.id));
-              const aStamp = incoming.lessonStamp ?? 0;
-              const bStamp = current.lessonStamp ?? 0;
-              const newer = aStamp > bStamp || (aStamp === bStamp &&
-                (incoming.lessonActor ?? '') >= (current.lessonActor ?? '')) ? incoming : current;
-              return {
-                ...incoming, lessonStep: newer.lessonStep ?? 0,
-                lessonStamp: newer.lessonStamp, lessonActor: newer.lessonActor,
-                // Hidden status and transforms survive rejoin instead of being
-                // resurrected by the previous union-only reconciliation.
-                strokes: [...merged, ...unshared].slice(-300),
-              };
-            });
-            // Respond once to a reconnecting peer with the merged snapshot,
-            // so strokes made offline reach both devices after reconnection.
-            // state-sync is an acknowledgement and is never echoed again.
-            if (message.kind === 'state') {
-              network.current?.send({ kind: 'state-sync', from: myId, to: message.from, board: boardRef.current });
-            }
+            if (incoming) acceptSnapshot(message.kind, message.from, incoming);
+            break;
+          }
+          case 'state-part': {
+            const assembled = receiveSnapshotPart(incomingSnapshots.current, message, myId);
+            if (assembled) acceptSnapshot(assembled.reply, assembled.from, assembled.board);
             break;
           }
           case 'stroke-start':
@@ -156,6 +180,7 @@ export function useRoom(roomId: string, displayName: string) {
                 message.stroke.by !== message.from ||
                 !pointsInSeat(message.stroke.points, message.stroke.owner) ||
                 remoteDrafts.current.has(message.stroke.id)) break;
+            logicalStamp.current = Math.max(logicalStamp.current, message.stroke.createdAt ?? 0);
             remoteDrafts.current.set(message.stroke.id, message.stroke);
             setDraftVersion((current) => current + 1);
             break;
@@ -285,6 +310,7 @@ export function useRoom(roomId: string, displayName: string) {
       connection?.close();
       lassoTimers.current.forEach(clearTimeout);
       lassoTimers.current.clear();
+      incomingSnapshots.current.clear();
     };
   // Intentional: this subscription is scoped to the room and participant identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -300,10 +326,14 @@ export function useRoom(roomId: string, displayName: string) {
     updateBoard((current) => ({ ...current, strokes: appendStroke(current.strokes, stroke) }));
   }, [updateBoard]);
 
-  const begin = useCallback((stroke: Stroke) => {
+  const begin = useCallback((stroke: Stroke): Stroke | void => {
     if (!seatRef.current || stroke.owner !== seatRef.current ||
         !pointsInSeat(stroke.points, seatRef.current)) return;
-    send({ kind: 'stroke-start', from: myId, stroke });
+    // Lamport-style room order: advance after every received mark. Clock skew
+    // cannot put a newly finished fill behind an older partner brush stroke.
+    const stamped = { ...stroke, createdAt: ++logicalStamp.current };
+    send({ kind: 'stroke-start', from: myId, stroke: stamped });
+    return stamped;
   }, [send, myId]);
 
   const points = useCallback((id: string, additions: Point[]) => {
@@ -325,7 +355,7 @@ export function useRoom(roomId: string, displayName: string) {
         stroke.tool !== 'fill' || stroke.by !== myId) return false;
     const clipped = ownedFill(stroke, currentSeat);
     if (!clipped || !isStroke(clipped)) return false;
-    stroke = clipped;
+    stroke = { ...clipped, createdAt: ++logicalStamp.current };
     addStroke(stroke);
     remember({ action: 'stroke', id: stroke.id });
     send({ kind: 'stroke-start', from: myId, stroke });

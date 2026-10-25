@@ -1,10 +1,11 @@
 import { BLEND_MODES, BRUSH_IDS } from './types';
+import { chronologicalStrokes } from './sceneOrder';
+import { saveDurableBoard } from './boardStorage';
 import { isSeat, pointsInSeat } from './ownership';
 import { validLessonStep } from './guidedLesson';
 import type { BoardState, Point, Stroke, TemplateId } from './types';
 
 const ROOM_RE = /^[a-f0-9]{32}$/;
-const MAX_STROKES = 300;
 const MAX_POINTS = 2000;
 
 export function isRoomId(value: string | null): value is string {
@@ -51,6 +52,7 @@ export function isStroke(value: unknown): value is Stroke {
       (s.gradient as Record<string, number>).angle >= 0 &&
       (s.gradient as Record<string, number>).angle <= 360)) &&
     (s.hidden === undefined || typeof s.hidden === 'boolean') &&
+    (s.createdAt === undefined || (Number.isSafeInteger(s.createdAt) && Number(s.createdAt) >= 0)) &&
     (s.lastEdit === undefined || (typeof s.lastEdit === 'number' && Number.isSafeInteger(s.lastEdit) && s.lastEdit >= 0)) &&
     (s.lastEditor === undefined || (typeof s.lastEditor === 'string' && s.lastEditor.length < 128)) &&
     Array.isArray(s.points) &&
@@ -65,12 +67,12 @@ export function isStroke(value: unknown): value is Stroke {
 export function sanitizeBoard(value: unknown): BoardState | null {
   if (!value || typeof value !== 'object') return null;
   const b = value as Record<string, unknown>;
-  if (!isTemplate(b.template) || !Array.isArray(b.strokes) || b.strokes.length > MAX_STROKES ||
+  if (!isTemplate(b.template) || !Array.isArray(b.strokes) ||
       !b.strokes.every(isStroke) || !Number.isSafeInteger(b.revision) || Number(b.revision) < 0) return null;
   if (b.lessonStep !== undefined && !validLessonStep(b.template, b.lessonStep)) return null;
   if (b.lessonStamp !== undefined && (!Number.isSafeInteger(b.lessonStamp) || Number(b.lessonStamp) < 0)) return null;
   if (b.lessonActor !== undefined && (typeof b.lessonActor !== 'string' || b.lessonActor.length > 128)) return null;
-  return { template: b.template, strokes: b.strokes, revision: Number(b.revision),
+  return { template: b.template, strokes: chronologicalStrokes(b.strokes), revision: Number(b.revision),
     lessonStep: b.lessonStep ?? 0, lessonStamp: b.lessonStamp as number | undefined,
     lessonActor: b.lessonActor as string | undefined };
 }
@@ -85,11 +87,15 @@ export function loadBoard(room: string): BoardState {
 }
 
 export function saveBoard(room: string, board: BoardState): void {
-  try { localStorage.setItem(`doodle-date-board:${room}`, JSON.stringify(board)); } catch { /* Storage is optional. */ }
+  // Keep the existing synchronous cache for fast startup, while saving the
+  // complete board to IndexedDB even after localStorage reaches its quota.
+  try { localStorage.setItem(`doodle-date-board:${room}`, JSON.stringify(board)); }
+  catch { /* The durable copy below remains available after a reload. */ }
+  saveDurableBoard(room, board);
 }
 
 export function appendStroke(strokes: Stroke[], stroke: Stroke): Stroke[] {
   if (strokes.some((item) => item.id === stroke.id)) return strokes;
-  return [...strokes, stroke].slice(-MAX_STROKES);
+  return chronologicalStrokes([...strokes, stroke]);
 }
 

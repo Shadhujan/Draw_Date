@@ -67,10 +67,12 @@ export function joinChannel(
   let closed = false;
   let channel: RealtimeChannel | null = null;
   const handle = { 
-    send(message: BoardMessage) {
-      if (!closed && channel?.state === 'joined') {
-        void channel.send({ type: 'broadcast', event: 'drawing', payload: message });
-      }
+    async send(message: BoardMessage): Promise<boolean> {
+      if (closed || channel?.state !== 'joined') return false;
+      try {
+        const result = await channel.send({ type: 'broadcast', event: 'drawing', payload: message });
+        return result === 'ok';
+      } catch { return false; }
     },
     close() {
       closed = true;

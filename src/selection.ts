@@ -1,3 +1,4 @@
+import { chronologicalStrokes } from './sceneOrder';
 import { canEditStroke, isSeat, seatBounds } from './ownership';
 import type { Point, Seat, SelectionEdit, Stroke } from './types';
 
@@ -162,10 +163,10 @@ export function applySelectionEdit(strokes: readonly Stroke[], edit: SelectionEd
     const newId = edit.copies[index];
     if (!source || !canEditStroke(source, edit.owner) || seen.has(newId)) return;
     copies.push({ ...shifted(source, bounded.dx, bounded.dy, edit.stamp, actor),
-      id: newId, by: actor, owner: edit.owner, hidden: false });
+      id: newId, by: actor, owner: edit.owner, hidden: false, createdAt: edit.stamp + index });
     seen.add(newId);
   });
-  return [...strokes, ...copies].slice(-300);
+  return chronologicalStrokes([...strokes, ...copies]);
 }
 
 function validIds(ids: unknown): ids is string[] {

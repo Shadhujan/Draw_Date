@@ -20,6 +20,7 @@ export type Stroke = {
   gradient?: PaintGradient;
   blend?: BlendMode;
   hidden?: boolean;
+  createdAt?: number; // Stable creation order across brush, fill and duplicate events.
   lastEdit?: number;
   lastEditor?: string;
   points: Point[];
@@ -53,6 +54,9 @@ export type BoardMessage =
   | { kind: 'state-request'; from: string }
   | { kind: 'state'; from: string; to: string; board: BoardState }
   | { kind: 'state-sync'; from: string; to: string; board: BoardState }
+  | { kind: 'state-part'; from: string; to: string; transferId: string;
+      reply: 'state' | 'state-sync'; index: number; count: number;
+      board: Omit<BoardState, 'strokes'>; strokes: Stroke[] }
   | { kind: 'stroke-start'; from: string; stroke: Stroke }
   | { kind: 'stroke-points'; from: string; id: string; points: Point[] }
   | { kind: 'stroke-end'; from: string; id: string }

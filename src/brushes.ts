@@ -184,8 +184,8 @@ export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
 }
 
 export function paintArtwork(ctx: CanvasRenderingContext2D, strokes: readonly Stroke[]) {
-  // Kept consistent for both participants: fills below linework, while an
-  // eraser removes transparency from ONLY its own separately clipped layer.
-  for (const stroke of strokes) if (!stroke.hidden && stroke.tool === 'fill') paintStroke(ctx, stroke);
-  for (const stroke of strokes) if (!stroke.hidden && stroke.tool !== 'fill') paintStroke(ctx, stroke);
+  // All tools share one chronological stack. A late fill paints over earlier
+  // lines; a later brush stroke paints over that fill. Ownership clipping is
+  // applied by layers.ts before reaching this renderer.
+  for (const stroke of strokes) paintStroke(ctx, stroke);
 }
