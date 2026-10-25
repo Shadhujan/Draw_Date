@@ -1,4 +1,5 @@
 import { BLEND_MODES, BRUSH_IDS } from './types';
+import { isSeat, pointsInSeat } from './ownership';
 import { validLessonStep } from './guidedLesson';
 import type { BoardState, Point, Stroke, TemplateId } from './types';
 
@@ -36,6 +37,7 @@ export function isStroke(value: unknown): value is Stroke {
   const s = value as Record<string, unknown>;
   return typeof s.id === 'string' && s.id.length < 128 && typeof s.by === 'string' &&
     (s.tool === 'pen' || s.tool === 'eraser' || s.tool === 'fill') && typeof s.color === 'string' && /^#[\da-fA-F]{6}$/.test(s.color) &&
+    (s.owner === undefined || isSeat(s.owner)) &&
     typeof s.size === 'number' && Number.isFinite(s.size) && s.size > 0 && s.size <= 80 &&
     (s.brush === undefined || BRUSH_IDS.some((brush) => brush === s.brush)) &&
     (s.opacity === undefined || (typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0.1 && s.opacity <= 1)) &&
@@ -52,6 +54,7 @@ export function isStroke(value: unknown): value is Stroke {
     (s.lastEditor === undefined || (typeof s.lastEditor === 'string' && s.lastEditor.length < 128)) &&
     Array.isArray(s.points) &&
     s.points.length > (s.tool === 'fill' ? 2 : 0) && s.points.length <= MAX_POINTS && s.points.every(isPoint) &&
+    (s.owner === undefined || s.tool === 'fill' || pointsInSeat(s.points as Point[], s.owner)) &&
     (s.tool === 'fill' ? (s.holes === undefined ||
       (Array.isArray(s.holes) && s.holes.length <= 12 && s.holes.every((ring) =>
         Array.isArray(ring) && ring.length >= 3 && ring.length <= MAX_POINTS && ring.every(isPoint)) &&

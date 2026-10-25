@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appendStroke, isPoint, isStroke, isTemplate, loadBoard, sanitizeBoard, saveBoard } from './board';
 import { joinChannel, realtimeConfigured } from './realtime';
+import { canEditStroke, inSeat, isSeat, otherSeat, ownedFill, pointsInSeat } from './ownership';
 import { validLessonStep } from './guidedLesson';
 import { applySelectionEdit, isSelectionEdit, limitTranslation, MAX_SELECTION } from './selection';
-import type { BoardMessage, BoardState, Cursor, Partner, Point, SelectionEdit, Stroke, TemplateId } from './types';
+import type { BoardMessage, BoardState, Cursor, Partner, Point, Seat, SelectionEdit, Stroke, TemplateId } from './types';
 
 type Connection = 'solo' | 'connecting' | 'connected' | 'error' | 'full' | 'expired';
 type Reaction = { id: string; value: string; name: string };
@@ -29,6 +30,11 @@ function latestStroke(local: Stroke | undefined, incoming: Stroke): Stroke {
 export function useRoom(roomId: string, displayName: string) {
   const myId = useRef(crypto.randomUUID()).current;
   const [board, setBoard] = useState<BoardState>(() => loadBoard(roomId));
+  // A Supabase admission result, not the nickname or the order of Presence events,
+  // permanently determines which invisible half this device may edit.
+  const [seat, setSeat] = useState<Seat | null>(realtimeConfigured ? null : 'host');
+  const seatRef = useRef<Seat | null>(seat);
+  seatRef.current = seat;
   const boardRef = useRef(board);
   const [connection, setConnection] = useState<Connection>(realtimeConfigured ? 'connecting' : 'solo');
   const [connectionAttempt, setConnectionAttempt] = useState(0);
@@ -42,6 +48,9 @@ export function useRoom(roomId: string, displayName: string) {
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const remoteDrafts = useRef(new Map<string, Stroke>());
   const [draftVersion, setDraftVersion] = useState(0);
+  const [remoteLassos, setRemoteLassos] = useState<
+    { from: string; seat: Seat; mode: 'paint' | 'outline' | 'drag'; points: Point[]; color: string; ids?: string[]; dx?: number; dy?: number }[]>([]);
+  const lassoTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const network = useRef<ReturnType<typeof joinChannel>>(null);
   const seenEdits = useRef(new Set<string>());
   const logicalStamp = useRef(Date.now());
@@ -74,7 +83,8 @@ export function useRoom(roomId: string, displayName: string) {
   // A move/edit is a small, atomic message. We don't resend all the pixels or
   // 2,000 individual pointer coordinates every time a selected stroke moves.
   const publishEdit = useCallback((intent: EditIntent) => {
-    const edit = { ...intent, revision: boardRef.current.revision,
+    if (!seatRef.current) return;
+    const edit = { ...intent, owner: seatRef.current, revision: boardRef.current.revision,
       stamp: ++logicalStamp.current, opId: crypto.randomUUID() } as SelectionEdit;
     updateBoard((current) => ({ ...current,
       strokes: applySelectionEdit(current.strokes, edit, myId) }));
@@ -86,6 +96,9 @@ export function useRoom(roomId: string, displayName: string) {
     if (!realtimeConfigured) return;
     let active = true;
     const connection = joinChannel(roomId, partner, {
+      onSeat(admittedSeat) {
+        if (active) { seatRef.current = admittedSeat; setSeat(admittedSeat); }
+      },
       onStatus(status) {
         if (active) setConnection(status);
       },
@@ -138,7 +151,11 @@ export function useRoom(roomId: string, displayName: string) {
             break;
           }
           case 'stroke-start':
-            if (!isStroke(message.stroke) || remoteDrafts.current.has(message.stroke.id)) break;
+            if (!seatRef.current || !isStroke(message.stroke) ||
+                message.stroke.owner !== otherSeat(seatRef.current) ||
+                message.stroke.by !== message.from ||
+                !pointsInSeat(message.stroke.points, message.stroke.owner) ||
+                remoteDrafts.current.has(message.stroke.id)) break;
             remoteDrafts.current.set(message.stroke.id, message.stroke);
             setDraftVersion((current) => current + 1);
             break;
@@ -146,7 +163,8 @@ export function useRoom(roomId: string, displayName: string) {
             if (!Array.isArray(message.points) || message.points.length > 50 ||
                 !message.points.every(isPoint)) break;
             const stroke = remoteDrafts.current.get(message.id);
-            if (!stroke) break;
+            if (!stroke || stroke.by !== message.from || !stroke.owner ||
+                !pointsInSeat(message.points, stroke.owner)) break;
             remoteDrafts.current.set(message.id, {
               ...stroke,
               points: [...stroke.points, ...message.points].slice(0, 2000),
@@ -156,7 +174,7 @@ export function useRoom(roomId: string, displayName: string) {
           }
           case 'stroke-end': {
             const stroke = remoteDrafts.current.get(message.id);
-            if (!stroke) break;
+            if (!stroke || stroke.by !== message.from) break;
             remoteDrafts.current.delete(message.id);
             updateBoard((current) => ({ ...current, strokes: appendStroke(current.strokes, stroke) }));
             setDraftVersion((current) => current + 1);
@@ -169,12 +187,46 @@ export function useRoom(roomId: string, displayName: string) {
           case 'selection-edit': {
             if (typeof message.from !== 'string' || message.from.length > 128 ||
                 !isSelectionEdit(message.edit) || seenEdits.current.has(message.edit.opId) ||
-                message.edit.revision !== boardRef.current.revision) break;
+                message.edit.revision !== boardRef.current.revision || !seatRef.current ||
+                message.edit.owner !== otherSeat(seatRef.current)) break;
             seenEdits.current.add(message.edit.opId);
             if (seenEdits.current.size > 500) seenEdits.current.clear();
             logicalStamp.current = Math.max(logicalStamp.current, message.edit.stamp);
             updateBoard((current) => ({ ...current,
               strokes: applySelectionEdit(current.strokes, message.edit, message.from) }));
+            break;
+          }
+          case 'lasso-gesture': {
+            if (!seatRef.current || message.seat !== otherSeat(seatRef.current) ||
+                (message.mode !== 'paint' && message.mode !== 'outline' && message.mode !== 'drag') ||
+                typeof message.from !== 'string' || message.from.length > 128 ||
+                typeof message.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(message.color) ||
+                !Array.isArray(message.points) || message.points.length > 220 ||
+                !message.points.every(isPoint) ||
+                (message.done ? message.points.length !== 0 : !pointsInSeat(message.points, message.seat)) ||
+                typeof message.done !== 'boolean' || (message.mode === 'drag' && !message.done && (
+                  !Array.isArray(message.ids) || message.ids.length === 0 || message.ids.length > MAX_SELECTION ||
+                  !message.ids.every((id) => typeof id === 'string' && id.length > 0 && id.length < 128) ||
+                  !message.ids.every((id) => boardRef.current.strokes.some((stroke) => stroke.id === id && stroke.owner === message.seat)) ||
+                  typeof message.dx !== 'number' || !Number.isFinite(message.dx) || Math.abs(message.dx) > 1000 ||
+                  typeof message.dy !== 'number' || !Number.isFinite(message.dy) || Math.abs(message.dy) > 700
+                ))) break;
+            const previous = lassoTimers.current.get(message.from);
+            if (previous) clearTimeout(previous);
+            lassoTimers.current.delete(message.from);
+            if (message.done) {
+              setRemoteLassos((items) => items.filter((item) => item.from !== message.from));
+            } else {
+              const draft = { from: message.from, seat: message.seat, mode: message.mode,
+                points: message.points, color: message.color, ids: message.ids,
+                dx: message.dx, dy: message.dy };
+              setRemoteLassos((items) => [...items.filter((item) => item.from !== message.from), draft]);
+              // A disconnected partner must not leave a permanent ghost outline.
+              lassoTimers.current.set(message.from, setTimeout(() => {
+                setRemoteLassos((items) => items.filter((item) => item.from !== message.from));
+                lassoTimers.current.delete(message.from);
+              }, 2200));
+            }
             break;
           }
           case 'lesson-step': {
@@ -198,6 +250,9 @@ export function useRoom(roomId: string, displayName: string) {
                 message.revision <= boardRef.current.revision) break;
             updateBoard(() => ({ template: message.template, strokes: [], revision: message.revision, lessonStep: 0 }));
             remoteDrafts.current.clear();
+            setRemoteLassos([]);
+            lassoTimers.current.forEach(clearTimeout);
+            lassoTimers.current.clear();
             history.current = [];
             setUndoDepth(0);
             setDraftVersion((current) => current + 1);
@@ -228,6 +283,8 @@ export function useRoom(roomId: string, displayName: string) {
       active = false;
       if (network.current === connection) network.current = null;
       connection?.close();
+      lassoTimers.current.forEach(clearTimeout);
+      lassoTimers.current.clear();
     };
   // Intentional: this subscription is scoped to the room and participant identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,6 +301,8 @@ export function useRoom(roomId: string, displayName: string) {
   }, [updateBoard]);
 
   const begin = useCallback((stroke: Stroke) => {
+    if (!seatRef.current || stroke.owner !== seatRef.current ||
+        !pointsInSeat(stroke.points, seatRef.current)) return;
     send({ kind: 'stroke-start', from: myId, stroke });
   }, [send, myId]);
 
@@ -252,6 +311,8 @@ export function useRoom(roomId: string, displayName: string) {
   }, [send, myId]);
 
   const end = useCallback((stroke: Stroke) => {
+    if (!seatRef.current || stroke.owner !== seatRef.current ||
+        !pointsInSeat(stroke.points, seatRef.current)) return;
     addStroke(stroke);
     remember({ action: 'stroke', id: stroke.id });
     send({ kind: 'stroke-end', from: myId, id: stroke.id });
@@ -259,7 +320,12 @@ export function useRoom(roomId: string, displayName: string) {
 
   // A completed fill is a single vector event, not a flood of pixel messages.
   const addFill = useCallback((stroke: Stroke, revision: number): boolean => {
-    if (boardRef.current.revision !== revision || !isStroke(stroke) || stroke.tool !== 'fill') return false;
+    const currentSeat = seatRef.current;
+    if (!currentSeat || boardRef.current.revision !== revision || !isStroke(stroke) ||
+        stroke.tool !== 'fill' || stroke.by !== myId) return false;
+    const clipped = ownedFill(stroke, currentSeat);
+    if (!clipped || !isStroke(clipped)) return false;
+    stroke = clipped;
     addStroke(stroke);
     remember({ action: 'stroke', id: stroke.id });
     send({ kind: 'stroke-start', from: myId, stroke });
@@ -284,32 +350,34 @@ export function useRoom(roomId: string, displayName: string) {
       publishEdit({ action: 'visibility', ids: last.ids, visible: last.visible });
     } else {
       const id = last?.action === 'stroke' ? last.id :
-        [...boardRef.current.strokes].reverse().find((stroke) => stroke.by === myId && !stroke.hidden)?.id;
+        [...boardRef.current.strokes].reverse().find((stroke) => canEditStroke(stroke, seatRef.current))?.id;
       if (id) publishEdit({ action: 'visibility', ids: [id], visible: false });
     }
   }, [myId, publishEdit]);
 
   const moveSelection = useCallback((ids: string[], dx: number, dy: number) => {
-    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && canEditStroke(s, seatRef.current)));
     if (!live.length || live.length > MAX_SELECTION) return;
-    const delta = limitTranslation(boardRef.current.strokes, live, dx, dy);
+    if (!seatRef.current) return;
+    const delta = limitTranslation(boardRef.current.strokes, live, dx, dy, seatRef.current);
     if (Math.hypot(delta.dx, delta.dy) <= 0.6) return;
     publishEdit({ action: 'move', ids: live, dx: delta.dx, dy: delta.dy });
     remember({ action: 'move', ids: live, dx: -delta.dx, dy: -delta.dy });
   }, [publishEdit, remember]);
 
   const deleteSelection = useCallback((ids: string[]) => {
-    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && canEditStroke(s, seatRef.current)));
     if (!live.length || live.length > MAX_SELECTION) return;
     publishEdit({ action: 'visibility', ids: live, visible: false });
     remember({ action: 'visibility', ids: live, visible: true });
   }, [publishEdit, remember]);
 
   const duplicateSelection = useCallback((ids: string[]): string[] => {
-    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && !s.hidden));
+    const live = ids.filter((id) => boardRef.current.strokes.some((s) => s.id === id && canEditStroke(s, seatRef.current)));
     if (!live.length || live.length > MAX_SELECTION) return [];
     const copies = live.map(() => crypto.randomUUID());
-    const delta = limitTranslation(boardRef.current.strokes, live, 24, 24);
+    if (!seatRef.current) return [];
+    const delta = limitTranslation(boardRef.current.strokes, live, 24, 24, seatRef.current);
     publishEdit({ action: 'duplicate', sources: live, copies, dx: delta.dx, dy: delta.dy });
     remember({ action: 'visibility', ids: copies, visible: false });
     return copies;
@@ -325,6 +393,16 @@ export function useRoom(roomId: string, displayName: string) {
     send({ kind: 'reset', from: myId, template, revision });
   }, [updateBoard, send, myId]);
 
+  const sendLassoPreview = useCallback((mode: 'paint' | 'outline' | 'drag', points: Point[] | null, color: string, ids?: string[], dx?: number, dy?: number) => {
+    const currentSeat = seatRef.current;
+    if (!currentSeat) return;
+    const safePoints = (points ?? []).slice(-220);
+    if (!safePoints.every((point) => inSeat(point, currentSeat))) return;
+    send({ kind: 'lasso-gesture', from: myId, seat: currentSeat, mode,
+      points: safePoints, color, done: points === null,
+      ...(mode === 'drag' && points !== null ? { ids, dx, dy } : {}) });
+  }, [myId, send]);
+
   const sendCursor = useCallback((x: number, y: number) => {
     send({ kind: 'cursor', from: myId, x, y, name: displayName, color: partner.accent });
   }, [myId, displayName, send, partner.accent]);
@@ -335,9 +413,9 @@ export function useRoom(roomId: string, displayName: string) {
   }, [send, myId, displayName]);
 
   return {
-    board, connection, retryConnection, members, cursors, reactions, myId,
-    remoteDrafts: remoteDrafts.current, draftVersion,
-    begin, points, end, addFill, setLessonStep, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => stroke.by === myId && !stroke.hidden),
+    board, connection, retryConnection, members, cursors, reactions, myId, seat,
+    remoteDrafts: remoteDrafts.current, remoteLassos, sendLassoPreview, draftVersion,
+    begin, points, end, addFill, setLessonStep, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => canEditStroke(stroke, seat)),
     moveSelection, deleteSelection, duplicateSelection,
     changeTemplate, sendCursor, react,
   };

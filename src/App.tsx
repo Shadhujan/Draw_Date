@@ -11,6 +11,7 @@ import { getHexChannels, setHexChannel } from './colorPaint';
 import { lessonSteps, traceCoverage } from './guidedLesson';
 import { makeSmartFill } from './smartFill';
 import { makeLassoPaint } from './lassoPaint';
+import { canEditStroke, inSeat } from './ownership';
 import { GuideArt, templates } from './templates';
 import type { BlendMode, BrushStyle, CanvasMode, PaintGradient, Point, Stroke, TemplateId } from './types';
 import { useRoom } from './useRoom';
@@ -174,15 +175,15 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   const full = room.connection === 'full';
   const onlinePartner = useMemo(() => room.members.find((member) => member.id !== room.myId), [room.members, room.myId]);
   const visibleSelected = useMemo(() => {
-    const visible = new Set(room.board.strokes.filter((stroke) => !stroke.hidden).map((stroke) => stroke.id));
+    const visible = new Set(room.board.strokes.filter((stroke) => canEditStroke(stroke, room.seat)).map((stroke) => stroke.id));
     return selectedIds.filter((id) => visible.has(id));
-  }, [selectedIds, room.board.strokes]);
+  }, [selectedIds, room.board.strokes, room.seat]);
   useEffect(() => {
     if (visibleSelected.length !== selectedIds.length) setSelectedIds(visibleSelected);
   }, [selectedIds, visibleSelected]);
   // Connectivity should never stop a drawing date. Failed sync means local-only
   // editing, clearly labelled below; full/expired invitations still stay closed.
-  const canDraw = !full && room.connection !== 'expired';
+  const canDraw = room.seat !== null && !full && room.connection !== 'expired';
   const gradient = paintMode === 'gradient' ? { to: secondColor, angle: gradientAngle } : undefined;
   const colorPreview = gradient
     ? `linear-gradient(${90 + gradientAngle}deg, ${color}, ${secondColor})` : color;
@@ -201,7 +202,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   }, [guideVisible, step, guided.length, room.board.strokes, room.board.template]);
 
   async function fillAt(at: Point) {
-    if (!canDraw || filling.current) return;
+    if (!canDraw || !room.seat || !inSeat(at, room.seat) || filling.current) return;
     filling.current = true;
     setFillBusy(true);
     setFillMessage('Finding the little space…');
@@ -227,7 +228,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   }
 
   function fillLasso(outline: Point[]) {
-    if (!canDraw) return;
+    if (!canDraw || !room.seat) return;
     const stroke = makeLassoPaint(outline, {
       id: crypto.randomUUID(), by: room.myId, color, opacity: opacity / 100,
       ...(gradient ? { gradient } : {}), blend: blendMode,
@@ -328,7 +329,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
             <div className={`canvas-shell ${!canDraw ? 'canvas-locked' : ''}`}>
               {guideVisible && <GuideArt template={room.board.template} className="guide-layer" step={step} />}
               <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
-                remoteDrafts={room.remoteDrafts} draftVersion={room.draftVersion} myId={room.myId}
+                remoteDrafts={room.remoteDrafts} remoteLassos={room.remoteLassos}
+                onLassoPreview={room.sendLassoPreview} seat={room.seat}
+                draftVersion={room.draftVersion} myId={room.myId}
                 mode={tool} selectedIds={visibleSelected} onSelectionChange={setSelectedIds}
                 onMoveSelection={room.moveSelection} onDeleteSelection={removeSelected}
                 brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}

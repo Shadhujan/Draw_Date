@@ -1,4 +1,5 @@
-import type { Point, SelectionEdit, Stroke } from './types';
+import { canEditStroke, isSeat, seatBounds } from './ownership';
+import type { Point, Seat, SelectionEdit, Stroke } from './types';
 
 export const CANVAS_WIDTH = 1000;
 export const CANVAS_HEIGHT = 700;
@@ -76,13 +77,13 @@ function polygonArea(points: readonly Point[]) {
 // This MVP lasso selects entire vector strokes touching the loop, not raster pixels.
 // Check both inside points and crossings so a loop can select a long stroke
 // even when both endpoints sit outside the lasso.
-export function strokesInsideLasso(strokes: readonly Stroke[], polygon: readonly Point[]): string[] {
+export function strokesInsideLasso(strokes: readonly Stroke[], polygon: readonly Point[], seat: Seat): string[] {
   if (polygon.length < 3 || polygonArea(polygon) < 65) return [];
   const region = boundsOfPoints(polygon);
   if (!region) return [];
   const result: string[] = [];
   for (const stroke of strokes) {
-    if (stroke.hidden || (stroke.tool !== 'pen' && stroke.tool !== 'fill') || result.length >= MAX_SELECTION) continue;
+    if (!canEditStroke(stroke, seat) || (stroke.tool !== 'pen' && stroke.tool !== 'fill') || result.length >= MAX_SELECTION) continue;
     const box = boundsOfPoints(stroke.points);
     if (!box || !boxesOverlap({
       left: box.left - stroke.size, right: box.right + stroke.size,
@@ -109,20 +110,21 @@ export function strokesInsideLasso(strokes: readonly Stroke[], polygon: readonly
   return result;
 }
 
-export function limitTranslation(strokes: readonly Stroke[], ids: readonly string[], dx: number, dy: number) {
+export function limitTranslation(strokes: readonly Stroke[], ids: readonly string[], dx: number, dy: number, seat: Seat) {
   const selected = new Set(ids);
   let left = Infinity; let top = Infinity;
   let right = -Infinity; let bottom = -Infinity;
   for (const stroke of strokes) {
-    if (!selected.has(stroke.id) || stroke.hidden) continue;
+    if (!selected.has(stroke.id) || !canEditStroke(stroke, seat)) continue;
     for (const point of stroke.points) {
       left = Math.min(left, point.x); top = Math.min(top, point.y);
       right = Math.max(right, point.x); bottom = Math.max(bottom, point.y);
     }
   }
   if (left === Infinity) return { dx: 0, dy: 0 };
+  const region = seatBounds(seat);
   return {
-    dx: Math.max(-left, Math.min(CANVAS_WIDTH - right, dx)),
+    dx: Math.max(region.left - left, Math.min(region.right - right, dx)),
     dy: Math.max(-top, Math.min(CANVAS_HEIGHT - bottom, dy)),
   };
 }
@@ -141,24 +143,26 @@ function shifted(stroke: Stroke, dx: number, dy: number, stamp: number, actor: s
 
 export function applySelectionEdit(strokes: readonly Stroke[], edit: SelectionEdit, actor: string): Stroke[] {
   if (edit.action === 'move') {
+    const bounds = limitTranslation(strokes, edit.ids, edit.dx, edit.dy, edit.owner);
     const targets = new Set(edit.ids);
-    return strokes.map((stroke) => targets.has(stroke.id) && !stroke.hidden
-      ? shifted(stroke, edit.dx, edit.dy, edit.stamp, actor) : stroke);
+    return strokes.map((stroke) => targets.has(stroke.id) && canEditStroke(stroke, edit.owner)
+      ? shifted(stroke, bounds.dx, bounds.dy, edit.stamp, actor) : stroke);
   }
   if (edit.action === 'visibility') {
     const targets = new Set(edit.ids);
-    return strokes.map((stroke) => targets.has(stroke.id)
+    return strokes.map((stroke) => targets.has(stroke.id) && stroke.owner === edit.owner
       ? { ...stroke, hidden: !edit.visible, lastEdit: edit.stamp, lastEditor: actor } : stroke);
   }
   const originals = new Map(strokes.map((stroke) => [stroke.id, stroke]));
   const seen = new Set(originals.keys());
   const copies: Stroke[] = [];
+  const bounded = limitTranslation(strokes, edit.sources, edit.dx, edit.dy, edit.owner);
   edit.sources.forEach((id, index) => {
     const source = originals.get(id);
     const newId = edit.copies[index];
-    if (!source || source.hidden || seen.has(newId)) return;
-    copies.push({ ...shifted(source, edit.dx, edit.dy, edit.stamp, actor),
-      id: newId, by: actor, hidden: false });
+    if (!source || !canEditStroke(source, edit.owner) || seen.has(newId)) return;
+    copies.push({ ...shifted(source, bounded.dx, bounded.dy, edit.stamp, actor),
+      id: newId, by: actor, owner: edit.owner, hidden: false });
     seen.add(newId);
   });
   return [...strokes, ...copies].slice(-300);
@@ -176,6 +180,7 @@ export function isSelectionEdit(value: unknown): value is SelectionEdit {
   if (typeof edit.opId !== 'string' || edit.opId.length < 8 || edit.opId.length > 128 ||
       !Number.isSafeInteger(edit.revision) || Number(edit.revision) < 0 ||
       !Number.isSafeInteger(edit.stamp) || Number(edit.stamp) < 1) return false;
+  if (!isSeat(edit.owner)) return false;
   if (edit.action === 'visibility') return validIds(edit.ids) && typeof edit.visible === 'boolean';
   if (edit.action === 'move') return validIds(edit.ids) &&
     typeof edit.dx === 'number' && Number.isFinite(edit.dx) && Math.abs(edit.dx) <= CANVAS_WIDTH &&

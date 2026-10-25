@@ -1,9 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { paintArtwork, paintStroke } from './brushes';
+import { paintStroke } from './brushes';
+import { buildLayers, compositeLayers, renderArtwork, type LayerSet } from './layers';
+import { inSeat, seatBounds } from './ownership';
 import { colorOverPaper } from './colorPaint';
 import { limitTranslation, selectionBounds, strokesInsideLasso } from './selection';
 import { lassoPaintPolygon } from './lassoPaint';
-import type { BlendMode, BrushStyle, CanvasMode, Point, Stroke } from './types';
+import type { BlendMode, BrushStyle, CanvasMode, Point, Seat, Stroke } from './types';
 
 const WORLD_W = 1000;
 const WORLD_H = 700;
@@ -20,6 +22,9 @@ type Props = {
   remoteDrafts: Map<string, Stroke>;
   draftVersion: number;
   myId: string;
+  seat: Seat | null;
+  remoteLassos: { from: string; seat: Seat; mode: 'paint' | 'outline' | 'drag'; points: Point[]; color: string; ids?: string[]; dx?: number; dy?: number }[];
+  onLassoPreview: (mode: 'paint' | 'outline' | 'drag', points: Point[] | null, color: string, ids?: string[], dx?: number, dy?: number) => void;
   mode: CanvasMode;
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
@@ -85,6 +90,32 @@ function drawSelection(ctx: CanvasRenderingContext2D, strokes: Stroke[], ids: st
   ctx.restore();
 }
 
+function drawLiveLasso(ctx: CanvasRenderingContext2D, points: readonly Point[],
+  seat: Seat, color: string, mode: 'paint' | 'outline') {
+  if (points.length < 2) return;
+  const bounds = seatBounds(seat);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(bounds.left, 0, bounds.right - bounds.left, 700);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.strokeStyle = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#bb7e96';
+  ctx.lineWidth = 2.2;
+  ctx.lineJoin = 'round';
+  ctx.setLineDash([7, 5]);
+  if (mode === 'paint' && points.length > 2) {
+    ctx.closePath();
+    ctx.globalAlpha = 0.14;
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.globalAlpha = 0.95;
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCanvas(props, externalRef) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const strokesRef = useRef(props.strokes);
@@ -97,7 +128,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   const pointerId = useRef<number | null>(null);
   const renderRequest = useRef(0);
   const latestRender = useRef<() => void>(() => {});
-  const painted = useRef<{ canvas: HTMLCanvasElement; strokes: Stroke[] } | null>(null);
+  const painted = useRef<{ layers: LayerSet; strokes: Stroke[]; width: number; height: number } | null>(null);
+  const lastLassoAt = useRef(0);
   strokesRef.current = props.strokes;
   drafts.current = props.remoteDrafts;
 
@@ -105,86 +137,70 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     const element = canvas.current;
     const ctx = element?.getContext('2d');
     if (!element || !ctx) return;
-
-    // During a lasso move, preview translated vector strokes without editing
-    // the board. A committed edit will invalidate the finished-stroke cache.
     const moving = selectionGesture.current?.kind === 'drag' ? selectionGesture.current : null;
     const painting = selectionGesture.current?.kind === 'paint' ? selectionGesture.current : null;
-    if (painting) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, element.width, element.height);
-      ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
+    const remoteMoves = props.remoteLassos.filter((preview) => preview.mode === 'drag' && preview.ids?.length);
+    const previews: Stroke[] = [];
+    drafts.current.forEach((stroke) => { if (stroke.owner) previews.push(stroke); });
+    if (current.current) previews.push(current.current);
+    if (painting && props.seat) {
       const path = lassoPaintPolygon(painting.points);
-      const preview: Stroke[] = path ? [{ id: 'lasso-paint-preview', by: props.myId,
-        tool: 'fill', size: 1, color: props.color, opacity: props.opacity,
-        ...(props.gradientTo ? { gradient: { to: props.gradientTo, angle: props.gradientAngle } } : {}),
-        ...(props.blend !== 'normal' ? { blend: props.blend } : {}), points: path }] : [];
-      paintArtwork(ctx, [...strokesRef.current, ...preview]);
-      drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
-      return;
+      if (path) previews.push({
+        id: 'lasso-preview', by: props.myId, owner: props.seat, tool: 'fill',
+        size: 1, color: props.color, opacity: Math.min(props.opacity, 0.42),
+        points: path,
+      });
     }
-    if (moving) {
-      const selected = new Set(moving.ids);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, element.width, element.height);
-      ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
-      const displaced = strokesRef.current.filter((stroke) => !stroke.hidden).map((stroke) =>
-        selected.has(stroke.id) ? {
+    if (moving || remoteMoves.length) {
+      // A transient selection move is rendered separately; the canonical board
+      // is not mutated until pointer-up, and the artwork is still owner-clipped.
+      const displaced = strokesRef.current.map((stroke) => {
+        const preview = moving?.ids.includes(stroke.id) && stroke.owner === props.seat
+          ? { dx: moving.dx, dy: moving.dy }
+          : remoteMoves.find((item) => item.seat === stroke.owner && item.ids?.includes(stroke.id));
+        if (!preview) return stroke;
+        const dx = preview.dx ?? 0, dy = preview.dy ?? 0;
+        return {
           ...stroke,
-          points: stroke.points.map((point) => ({ ...point, x: point.x + moving.dx, y: point.y + moving.dy })),
+          points: stroke.points.map((point) => ({ ...point, x: point.x + dx, y: point.y + dy })),
           holes: stroke.holes?.map((ring) => ring.map((point) => ({
-            ...point, x: point.x + moving.dx, y: point.y + moving.dy,
+            ...point, x: point.x + dx, y: point.y + dy,
           }))),
-        } : stroke);
-      paintArtwork(ctx, displaced);
-      drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
-      if (current.current) paintStroke(ctx, current.current);
-      drawSelection(ctx, strokesRef.current, props.selectedIds, moving);
-      return;
-    }
-
-    // Cache finished strokes. Only the current pen and your partner's drafts
-    // need repainting on every pointer move, even with textured brushes.
-    const old = painted.current;
-    const sameSize = old?.canvas.width === element.width && old?.canvas.height === element.height;
-    if (!old || !sameSize) {
-      const layer = document.createElement('canvas');
-      layer.width = element.width;
-      layer.height = element.height;
-      const background = layer.getContext('2d');
-      if (background) {
-        background.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
-        paintArtwork(background, strokesRef.current);
+        };
+      });
+      compositeLayers(ctx, buildLayers(displaced, element.width, element.height), previews);
+    } else {
+      const cached = painted.current;
+      if (!cached || cached.strokes !== strokesRef.current ||
+          cached.width !== element.width || cached.height !== element.height) {
+        painted.current = {
+          layers: buildLayers(strokesRef.current, element.width, element.height),
+          strokes: strokesRef.current, width: element.width, height: element.height,
+        };
       }
-      painted.current = { canvas: layer, strokes: strokesRef.current };
-    } else if (old.strokes !== strokesRef.current) {
-      const next = strokesRef.current;
-      // Fast path for appending strokes: leave the already painted layers alone.
-      // Undo, resetting or history reconciliation will rebuild the full layer.
-      const canAppend = next.length >= old.strokes.length &&
-        old.strokes.every((stroke, index) => next[index] === stroke) &&
-        !next.slice(old.strokes.length).some((stroke) => stroke.tool === 'fill');
-      const background = old.canvas.getContext('2d');
-      if (background) {
-        if (!canAppend) {
-          background.setTransform(1, 0, 0, 1, 0, 0);
-          background.clearRect(0, 0, old.canvas.width, old.canvas.height);
-        }
-        background.setTransform(old.canvas.width / WORLD_W, 0, 0, old.canvas.height / WORLD_H, 0, 0);
-        paintArtwork(background, canAppend ? next.slice(old.strokes.length) : next);
-      }
-      painted.current = { canvas: old.canvas, strokes: next };
+      if (painted.current) compositeLayers(ctx, painted.current.layers, previews);
     }
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, element.width, element.height);
-    if (!painted.current) return;
-    ctx.drawImage(painted.current.canvas, 0, 0);
+    ctx.save();
     ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
-    drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
-    if (current.current) paintStroke(ctx, current.current);
-    if (props.mode === 'lasso') drawSelection(ctx, strokesRef.current, props.selectedIds, selectionGesture.current);
-  }, [props.mode, props.selectedIds, props.myId, props.color, props.opacity, props.gradientTo, props.gradientAngle, props.blend]);
+    if (props.mode === 'lasso' && props.seat) {
+      const editable = strokesRef.current.filter((stroke) => stroke.owner === props.seat);
+      drawSelection(ctx, editable, props.selectedIds, selectionGesture.current);
+    }
+    if (painting && props.seat) drawLiveLasso(ctx, painting.points, props.seat, props.color, 'paint');
+    for (const preview of props.remoteLassos) {
+      if (preview.mode === 'drag') {
+        const editable = strokesRef.current.filter((stroke) => stroke.owner === preview.seat);
+        drawSelection(ctx, editable, preview.ids ?? [], {
+          kind: 'drag', ids: preview.ids ?? [], start: { x: 0, y: 0 },
+          dx: preview.dx ?? 0, dy: preview.dy ?? 0,
+        });
+      } else {
+        drawLiveLasso(ctx, preview.points, preview.seat, preview.color, preview.mode);
+      }
+    }
+    ctx.restore();
+  }, [props.mode, props.selectedIds, props.myId, props.seat, props.color,
+    props.opacity, props.remoteLassos]);
 
   // Keep the scheduler stable across React rerenders. Previously, every new
   // stroke changed the selection-array identity, recreated this callback, and
@@ -201,9 +217,9 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   }, []);
 
   useEffect(() => { scheduleRender(); }, [
-    props.strokes, props.draftVersion, props.mode, props.selectedIds,
+    props.strokes, props.draftVersion, props.mode, props.selectedIds, props.remoteLassos,
     props.color, props.opacity, props.gradientTo, props.gradientAngle,
-    props.blend, scheduleRender,
+    props.blend, props.seat, scheduleRender,
   ]);
 
   useEffect(() => {
@@ -245,37 +261,28 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       if (!ctx) return;
       ctx.fillStyle = '#fffdfa';
       ctx.fillRect(0, 0, 1600, 1120);
-      // Draw smart-filled shapes below the guide and all visible outlines.
-      const fills = document.createElement('canvas');
-      fills.width = 1600; fills.height = 1120;
-      const fillsCtx = fills.getContext('2d');
-      if (fillsCtx) {
-        fillsCtx.setTransform(1.6, 0, 0, 1.6, 0, 0);
-        paintArtwork(fillsCtx, strokesRef.current.filter((stroke) => stroke.tool === 'fill'));
-        ctx.drawImage(fills, 0, 0);
-      }
       if (guide) {
         try {
           const svg = new XMLSerializer().serializeToString(guide);
           const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-          const image = new Image();
-          image.src = svgUrl;
-          await image.decode();
-          ctx.globalAlpha = 0.45;
-          ctx.drawImage(image, 0, 0, 1600, 1120);
-          ctx.globalAlpha = 1;
-          URL.revokeObjectURL(svgUrl);
+          try {
+            const image = new Image();
+            image.src = svgUrl;
+            await image.decode();
+            ctx.globalAlpha = 0.45;
+            ctx.drawImage(image, 0, 0, 1600, 1120);
+            ctx.globalAlpha = 1;
+          } finally { URL.revokeObjectURL(svgUrl); }
         } catch { /* Keep the ink even if exporting the guide fails. */ }
       }
-      // Paint on a separate transparent layer: an eraser must not punch holes
-      // through the exported paper or the optional tracing guide.
+      // Both transparent ownership layers are composed after painting the paper.
+      // Erasing is confined to its owner's pigment, never the paper or partner.
       const ink = document.createElement('canvas');
       ink.width = out.width;
       ink.height = out.height;
       const inkCtx = ink.getContext('2d');
       if (!inkCtx) return;
-      inkCtx.setTransform(1.6, 0, 0, 1.6, 0, 0);
-      paintArtwork(inkCtx, strokesRef.current.filter((stroke) => stroke.tool !== 'fill'));
+      renderArtwork(inkCtx, strokesRef.current);
       ctx.drawImage(ink, 0, 0);
       const a = document.createElement('a');
       a.href = out.toDataURL('image/png');
@@ -306,6 +313,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
         (event.pointerType === 'mouse' && event.button !== 0)) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const initial = point(event, rect);
+    if (!props.seat || !inSeat(initial, props.seat)) return;
     if (props.mode === 'picker') {
       const surface = event.currentTarget;
       const context = surface.getContext('2d');
@@ -322,6 +330,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     }
     if (props.mode === 'lasso-paint') {
       selectionGesture.current = { kind: 'paint', points: [initial] };
+      props.onLassoPreview('paint', [initial], props.color);
       pointerId.current = event.pointerId;
       event.currentTarget.setPointerCapture(event.pointerId);
       scheduleRender();
@@ -332,8 +341,10 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       if (region && initial.x >= region.left - 7 && initial.x <= region.right + 7 &&
           initial.y >= region.top - 7 && initial.y <= region.bottom + 7) {
         selectionGesture.current = { kind: 'drag', ids: props.selectedIds, start: initial, dx: 0, dy: 0 };
+        props.onLassoPreview('drag', [initial], props.color, props.selectedIds, 0, 0);
       } else {
         selectionGesture.current = { kind: 'outline', points: [initial] };
+        props.onLassoPreview('outline', [initial], props.color);
         props.onSelectionChange([]);
       }
       pointerId.current = event.pointerId;
@@ -343,7 +354,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     }
     if (props.mode !== 'pen' && props.mode !== 'eraser') return;
     const stroke: Stroke = {
-      id: crypto.randomUUID(), by: props.myId, tool: props.mode,
+      id: crypto.randomUUID(), by: props.myId, owner: props.seat, tool: props.mode,
       color: props.color, size: props.mode === 'eraser' ? Math.min(80, props.size * 2.3) : props.size,
       brush: props.brush, opacity: props.mode === 'eraser' ? 1 : props.opacity,
       ...(props.mode === 'pen' && props.gradientTo ? { gradient: { to: props.gradientTo, angle: props.gradientAngle } } : {}),
@@ -361,6 +372,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   function pointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const next = point(event, rect);
+    if (!props.seat || !inSeat(next, props.seat)) return;
     const now = performance.now();
     if (now - lastCursorAt.current >= CURSOR_MS) {
       props.onCursor(next.x, next.y);
@@ -374,15 +386,23 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
         // Keep the polygon compact for smooth selection on older phones.
         if (gesture.points.length >= 220) gesture.points = gesture.points.filter((_, i) => i % 2 === 0);
         gesture.points.push(next);
+        if (now - lastLassoAt.current > 65) {
+          props.onLassoPreview(gesture.kind === 'paint' ? 'paint' : 'outline', [...gesture.points], props.color);
+          lastLassoAt.current = now;
+        }
         scheduleRender();
       }
       return;
     }
     if (gesture?.kind === 'drag') {
       const requested = limitTranslation(strokesRef.current, gesture.ids,
-        next.x - gesture.start.x, next.y - gesture.start.y);
+        next.x - gesture.start.x, next.y - gesture.start.y, props.seat);
       gesture.dx = requested.dx;
       gesture.dy = requested.dy;
+      if (now - lastLassoAt.current > 65) {
+        props.onLassoPreview('drag', [next], props.color, gesture.ids, gesture.dx, gesture.dy);
+        lastLassoAt.current = now;
+      }
       scheduleRender();
       return;
     }
@@ -421,11 +441,15 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       selectionGesture.current = null;
       pointerId.current = null;
       if (gesture.kind === 'outline') {
-        props.onSelectionChange(strokesInsideLasso(strokesRef.current, gesture.points));
+        props.onSelectionChange(strokesInsideLasso(strokesRef.current, gesture.points, props.seat!));
+        props.onLassoPreview('outline', null, props.color);
       } else if (gesture.kind === 'paint') {
         props.onLassoPaint(gesture.points);
-      } else if (Math.hypot(gesture.dx, gesture.dy) > 0.6) {
-        props.onMoveSelection(gesture.ids, gesture.dx, gesture.dy);
+        props.onLassoPreview('paint', null, props.color);
+      } else if (gesture.kind === 'drag') {
+        if (Math.hypot(gesture.dx, gesture.dy) > 0.6)
+          props.onMoveSelection(gesture.ids, gesture.dx, gesture.dy);
+        props.onLassoPreview('drag', null, props.color);
       }
       scheduleRender();
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -449,6 +473,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     if (selectionGesture.current) {
       selectionGesture.current = null;
       pointerId.current = null;
+      props.onLassoPreview('outline', null, props.color);
       scheduleRender();
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     } else {

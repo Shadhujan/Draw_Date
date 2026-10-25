@@ -1,4 +1,4 @@
-import { gradientSampler, strokePaint } from './colorPaint';
+import { strokePaint } from './colorPaint';
 import type { BrushStyle, Point, Stroke } from './types';
 
 export const brushChoices: { id: BrushStyle; name: string; description: string }[] = [
@@ -11,209 +11,138 @@ export const brushChoices: { id: BrushStyle; name: string; description: string }
   { id: 'glitter', name: 'Sparkle', description: 'Little glowing flecks' },
 ];
 
-type Sample = { x: number; y: number; p: number };
+type Sample = { x: number; y: number; pressure: number };
+const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
-function clamp(value: number, low: number, high: number) {
-  return Math.min(high, Math.max(low, value));
-}
-
-function pressure(value?: number) {
-  return value === undefined ? 0.68 : clamp(value, 0, 1);
-}
-
-// A seeded generator makes textured strokes look the same on both partners' screens.
-// No random brush state or generated particle coordinates need to cross the network.
-function seeded(seedText: string): () => number {
-  let seed = 2166136261;
-  for (let i = 0; i < seedText.length; i++) {
-    seed = Math.imul(seed ^ seedText.charCodeAt(i), 16777619);
-  }
+function seeded(text: string): () => number {
+  let state = 2166136261;
+  for (let i = 0; i < text.length; i++) state = Math.imul(state ^ text.charCodeAt(i), 16777619);
   return () => {
-    seed += 0x6d2b79f5;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    state += 0x6d2b79f5;
+    let n = Math.imul(state ^ (state >>> 15), 1 | state);
+    n ^= n + Math.imul(n ^ (n >>> 7), 61 | n);
+    return ((n ^ (n >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-function sampleStroke(points: Point[]): Sample[] {
-  if (points.length === 1) return [{ x: points[0].x, y: points[0].y, p: pressure(points[0].p) }];
-
-  let total = 0;
-  for (let i = 1; i < points.length; i++) {
-    total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
-  }
-  const spacing = Math.max(2.25, total / 2200);
-  const samples: Sample[] = [];
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const before = points[Math.max(0, i - 1)];
-    const after = points[Math.min(points.length - 1, i + 2)];
+// Linear, arc-length-based resampling avoids the self-intersecting Catmull-Rom
+// ribbons and sharp wedges previously seen when the pointer doubled back.
+function samples(points: Point[], brushSize: number): Sample[] {
+  if (!points.length) return [];
+  const result: Sample[] = [{ x: points[0].x, y: points[0].y, pressure: points[0].p ?? 0.68 }];
+  const spacing = Math.max(0.8, Math.min(2.6, brushSize * 0.16));
+  let pendingDistance = 0;
+  for (let i = 1; i < points.length && result.length < 6000; i++) {
+    const a = points[i - 1], b = points[i];
     const length = Math.hypot(b.x - a.x, b.y - a.y);
-    const steps = Math.max(1, Math.ceil(length / spacing));
-    for (let j = 0; j < steps; j++) {
-      const t = j / steps;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      const curve = (p0: number, p1: number, p2: number, p3: number) =>
-        0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-          (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
-      samples.push({
-        x: clamp(curve(before.x, a.x, b.x, after.x), 0, 1000),
-        y: clamp(curve(before.y, a.y, b.y, after.y), 0, 700),
-        p: pressure(a.p) + (pressure(b.p) - pressure(a.p)) * t,
+    if (length < 0.01) continue;
+    let distance = spacing - pendingDistance;
+    while (distance <= length && result.length < 6000) {
+      const t = distance / length;
+      result.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        pressure: (a.p ?? 0.68) + ((b.p ?? 0.68) - (a.p ?? 0.68)) * t,
       });
+      distance += spacing;
     }
+    pendingDistance = length - (distance - spacing);
   }
   const last = points[points.length - 1];
-  samples.push({ x: last.x, y: last.y, p: pressure(last.p) });
-  return samples;
+  if (result.length < 6000 && (result[result.length - 1].x !== last.x || result[result.length - 1].y !== last.y)) {
+    result.push({ x: last.x, y: last.y, pressure: last.p ?? 0.68 });
+  }
+  return result;
 }
 
-function radiusAt(sample: Sample, size: number, variability: number): number {
-  return Math.max(0.32, size * 0.5 * (1 + variability * (sample.p - 0.55)));
+function stampRadius(brush: BrushStyle, size: number, pressure: number) {
+  const widths: Record<BrushStyle, number> = {
+    ink: 0.52, pencil: 0.39, marker: 0.66, watercolor: 0.86,
+    crayon: 0.58, airbrush: 1.15, glitter: 0.33,
+  };
+  return Math.max(0.45, size * widths[brush] * (0.75 + clamp(pressure, 0, 1) * 0.45));
 }
 
-// A single filled ribbon avoids the dark overlapping circles common in marker
-// and watercolor emulations. It also gives pen/stylus pressure real width variation.
-function paintRibbon(
-  ctx: CanvasRenderingContext2D,
-  samples: Sample[],
-  color: string | CanvasGradient,
-  size: number,
-  alpha: number,
-  variability = 0.7,
-  wobble = 0,
-  seed = 0,
-) {
-  if (!samples.length || alpha <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  if (samples.length === 1) {
-    ctx.arc(samples[0].x, samples[0].y, radiusAt(samples[0], size, variability), 0, Math.PI * 2);
+// Work in a tightly cropped temporary canvas. Every dab first paints at full
+// alpha into ONE stroke mask; opacity is applied only when that completed mask
+// is composited. An individual stroke therefore cannot darken where its dabs
+// happen to overlap. Separate strokes may still deliberately build pigment.
+function maskFor(ctx: CanvasRenderingContext2D, stroke: Stroke, brush: BrushStyle) {
+  const transform = ctx.getTransform();
+  const scale = Math.max(0.1, Math.max(Math.abs(transform.a), Math.abs(transform.d)));
+  const margin = stroke.size * (brush === 'airbrush' ? 4 : brush === 'watercolor' ? 2.8 : 1.5) + 4;
+  const xs = stroke.points.map((p) => p.x), ys = stroke.points.map((p) => p.y);
+  const left = Math.max(0, Math.floor((Math.min(...xs) - margin) * scale + transform.e));
+  const top = Math.max(0, Math.floor((Math.min(...ys) - margin) * scale + transform.f));
+  const right = Math.min(ctx.canvas.width, Math.ceil((Math.max(...xs) + margin) * scale + transform.e));
+  const bottom = Math.min(ctx.canvas.height, Math.ceil((Math.max(...ys) + margin) * scale + transform.f));
+  if (right <= left || bottom <= top) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = right - left;
+  canvas.height = bottom - top;
+  const ink = canvas.getContext('2d');
+  if (!ink) return null;
+  ink.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e - left, transform.f - top);
+  return { canvas, ink, left, top };
+}
+
+function dottedMask(ctx: CanvasRenderingContext2D, marks: Sample[], stroke: Stroke, brush: BrushStyle) {
+  ctx.fillStyle = '#000';
+  for (const sample of marks) {
+    const radius = stampRadius(brush, stroke.size, sample.pressure);
+    ctx.beginPath();
+    ctx.arc(sample.x, sample.y, radius, 0, 2 * Math.PI);
     ctx.fill();
-    ctx.restore();
-    return;
   }
-  const left: { x: number; y: number }[] = [];
-  const right: { x: number; y: number }[] = [];
-  for (let i = 0; i < samples.length; i++) {
-    const previous = samples[Math.max(i - 1, 0)];
-    const next = samples[Math.min(i + 1, samples.length - 1)];
-    const distance = Math.hypot(next.x - previous.x, next.y - previous.y) || 1;
-    const nx = -(next.y - previous.y) / distance;
-    const ny = (next.x - previous.x) / distance;
-    // A stable pseudo-grain value; the same stroke never shimmers on repaint.
-    const noise = Math.sin((i + 1) * 8.173 + seed * 0.00001) *
-      Math.cos((i + 3) * 5.873 + seed * 0.00003);
-    const r = radiusAt(samples[i], size, variability) * (1 + wobble * noise);
-    left.push({ x: samples[i].x + nx * r, y: samples[i].y + ny * r });
-    right.push({ x: samples[i].x - nx * r, y: samples[i].y - ny * r });
-  }
-  ctx.moveTo(left[0].x, left[0].y);
-  for (let i = 1; i < left.length; i++) ctx.lineTo(left[i].x, left[i].y);
-  const tail = samples[samples.length - 1];
-  const preTail = samples[samples.length - 2];
-  const tailRadius = radiusAt(tail, size, variability);
-  const tailAngle = Math.atan2(tail.y - preTail.y, tail.x - preTail.x);
-  ctx.quadraticCurveTo(tail.x + Math.cos(tailAngle) * tailRadius,
-    tail.y + Math.sin(tailAngle) * tailRadius, right[right.length - 1].x, right[right.length - 1].y);
-  for (let i = right.length - 2; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
-  const head = samples[0];
-  const postHead = samples[1];
-  const headRadius = radiusAt(head, size, variability);
-  const headAngle = Math.atan2(head.y - postHead.y, head.x - postHead.x);
-  ctx.quadraticCurveTo(head.x + Math.cos(headAngle) * headRadius,
-    head.y + Math.sin(headAngle) * headRadius, left[0].x, left[0].y);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
 }
 
-function speckle(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stroke,
-  alpha: number, density: number, radiusFactor: number) {
-  const random = seeded(`${stroke.id}:${stroke.brush ?? 'ink'}:grain`);
+function grainMask(ctx: CanvasRenderingContext2D, marks: Sample[], stroke: Stroke, brush: 'pencil' | 'crayon') {
+  const rand = seeded(`${stroke.id}:${brush}:texture`);
   ctx.save();
-  ctx.fillStyle = strokePaint(ctx, stroke);
-  ctx.globalAlpha = alpha;
-  for (let i = 0; i < samples.length; i += density) {
-    const sample = samples[i];
-    const radius = stroke.size * radiusFactor * (0.45 + sample.p);
-    for (let n = 0; n < 3; n++) {
-      const angle = random() * Math.PI * 2;
-      const offset = (random() - random()) * radius;
-      const x = sample.x + Math.cos(angle) * offset;
-      const y = sample.y + Math.sin(angle) * offset;
-      const dot = 0.35 + random() * 1.3;
-      ctx.fillRect(x, y, dot, dot);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.globalAlpha = brush === 'pencil' ? 0.34 : 0.72;
+  const count = brush === 'pencil' ? 2 : 4;
+  for (let i = 0; i < marks.length; i += brush === 'pencil' ? 3 : 2) {
+    const s = marks[i];
+    const radius = stampRadius(brush, stroke.size, s.pressure);
+    for (let n = 0; n < count; n++) {
+      const theta = rand() * 2 * Math.PI;
+      const distance = rand() * radius;
+      const x = s.x + Math.cos(theta) * distance;
+      const y = s.y + Math.sin(theta) * distance;
+      const d = brush === 'crayon' ? 0.5 + rand() * 1.1 : 0.25 + rand() * 0.6;
+      ctx.fillRect(x, y, d, d);
     }
   }
   ctx.restore();
 }
 
-function radialColor(hex: string, alpha: number) {
-  const value = parseInt(hex.slice(1), 16);
-  return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
-}
-
-function airbrush(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stroke, opacity: number) {
-  const colorAt = gradientSampler(stroke);
-  ctx.save();
-  let previousX = Number.NEGATIVE_INFINITY;
-  let previousY = Number.NEGATIVE_INFINITY;
-  for (const sample of samples) {
-    const radius = stroke.size * (1.7 + sample.p * 0.6);
-    if (Math.hypot(sample.x - previousX, sample.y - previousY) < radius * 0.25) continue;
-    const gradient = ctx.createRadialGradient(sample.x, sample.y, 0, sample.x, sample.y, radius);
-    const shade = colorAt(sample.x, sample.y);
-    gradient.addColorStop(0, radialColor(shade, 0.16 * opacity));
-    gradient.addColorStop(0.38, radialColor(shade, 0.095 * opacity));
-    gradient.addColorStop(1, radialColor(shade, 0));
-    ctx.fillStyle = gradient;
-    ctx.fillRect(sample.x - radius, sample.y - radius, radius * 2, radius * 2);
-    previousX = sample.x;
-    previousY = sample.y;
-  }
-  ctx.restore();
-}
-
-function sparkles(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stroke, opacity: number) {
-  const random = seeded(`${stroke.id}:sparkles`);
-  const colorAt = gradientSampler(stroke);
-  ctx.save();
-  for (let i = 0; i < samples.length; i += 7) {
-    const sample = samples[i];
-    const spread = stroke.size * (0.2 + sample.p * 0.55);
-    const x = sample.x + (random() - random()) * spread;
-    const y = sample.y + (random() - random()) * spread;
-    const r = Math.max(1.3, stroke.size * (0.08 + random() * 0.18));
-    ctx.globalAlpha = (0.25 + random() * 0.65) * opacity;
-    ctx.fillStyle = random() > 0.52 ? '#fff2b5' : colorAt(x, y);
+function glitterMask(ctx: CanvasRenderingContext2D, marks: Sample[], stroke: Stroke) {
+  const random = seeded(`${stroke.id}:sparkle`);
+  ctx.fillStyle = '#000';
+  for (let i = 0; i < marks.length; i += 6) {
+    const s = marks[i];
+    const r = Math.max(0.9, stroke.size * (0.09 + random() * 0.20));
+    const x = s.x + (random() - random()) * stroke.size * 0.4;
+    const y = s.y + (random() - random()) * stroke.size * 0.4;
     ctx.beginPath();
-    ctx.moveTo(x, y - r);
-    ctx.quadraticCurveTo(x + r * 0.2, y - r * 0.2, x + r, y);
-    ctx.quadraticCurveTo(x + r * 0.2, y + r * 0.2, x, y + r);
-    ctx.quadraticCurveTo(x - r * 0.2, y + r * 0.2, x - r, y);
-    ctx.quadraticCurveTo(x - r * 0.2, y - r * 0.2, x, y - r);
+    ctx.moveTo(x, y - r); ctx.quadraticCurveTo(x + r * 0.16, y - r * 0.16, x + r, y);
+    ctx.quadraticCurveTo(x + r * 0.16, y + r * 0.16, x, y + r);
+    ctx.quadraticCurveTo(x - r * 0.16, y + r * 0.16, x - r, y);
+    ctx.quadraticCurveTo(x - r * 0.16, y - r * 0.16, x, y - r);
     ctx.fill();
   }
-  ctx.restore();
 }
 
 export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-  if (!stroke.points.length) return;
+  if (!stroke.points.length || stroke.hidden) return;
   if (stroke.tool === 'fill') {
     ctx.save();
     ctx.globalCompositeOperation = stroke.blend === 'multiply' || stroke.blend === 'screen' ? stroke.blend : 'source-over';
     ctx.globalAlpha = clamp(stroke.opacity ?? 1, 0.1, 1);
     ctx.fillStyle = strokePaint(ctx, stroke);
     ctx.beginPath();
-    const rings = [stroke.points, ...(stroke.holes ?? [])];
-    for (const ring of rings) {
+    for (const ring of [stroke.points, ...(stroke.holes ?? [])]) {
       if (ring.length < 3) continue;
       ctx.moveTo(ring[0].x, ring[0].y);
       for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i].x, ring[i].y);
@@ -223,58 +152,40 @@ export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.restore();
     return;
   }
-  const samples = sampleStroke(stroke.points);
-  const opacity = clamp(stroke.opacity ?? 1, 0.1, 1);
+  const brush = stroke.tool === 'eraser' ? 'ink' : stroke.brush ?? 'ink';
+  const layer = maskFor(ctx, stroke, brush);
+  if (!layer) return;
+  const { canvas, ink, left, top } = layer;
+  const marks = samples(stroke.points, stroke.size);
+  if (stroke.brush === 'glitter' && stroke.tool !== 'eraser') glitterMask(ink, marks, stroke);
+  else dottedMask(ink, marks, stroke, brush);
+  if (stroke.tool !== 'eraser') {
+    if (brush === 'pencil' || brush === 'crayon') grainMask(ink, marks, stroke, brush);
+    ink.globalCompositeOperation = 'source-in';
+    ink.globalAlpha = 1;
+    ink.fillStyle = strokePaint(ink, stroke);
+    ink.fillRect(0, 0, 1000, 700);
+  }
   ctx.save();
-
-  if (stroke.tool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
-    paintRibbon(ctx, samples, '#000000', stroke.size, 1, 0.1);
-    ctx.restore();
-    return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = stroke.tool === 'eraser'
+    ? 'destination-out' : stroke.blend === 'multiply' || stroke.blend === 'screen' ? stroke.blend : 'source-over';
+  const baseAlpha: Record<BrushStyle, number> = {
+    ink: 1, pencil: 0.8, marker: 0.66, watercolor: 0.48,
+    crayon: 0.9, airbrush: 0.42, glitter: 0.94,
+  };
+  ctx.globalAlpha = stroke.tool === 'eraser' ? 1 : clamp(stroke.opacity ?? 1, 0.1, 1) * baseAlpha[brush];
+  if (brush === 'airbrush' || brush === 'watercolor') {
+    const blur = Math.min(24, stroke.size * (brush === 'airbrush' ? 0.75 : 0.16));
+    ctx.filter = `blur(${blur * Math.max(0.5, ctx.canvas.width / 1000)}px)`;
   }
-
-  // Blending happens inside the shared transparent ink layer. Each partner
-  // replays the same stroke order, and older strokes default to normal ink.
-  ctx.globalCompositeOperation = stroke.blend === 'multiply' || stroke.blend === 'screen'
-    ? stroke.blend : 'source-over';
-  const color = strokePaint(ctx, stroke);
-  switch (stroke.brush ?? 'ink') {
-    case 'pencil':
-      paintRibbon(ctx, samples, color, stroke.size * 0.76, opacity * 0.72, 0.92, 0.08);
-      speckle(ctx, samples, stroke, opacity * 0.28, 3, 0.42);
-      break;
-    case 'marker':
-      paintRibbon(ctx, samples, color, stroke.size * 1.15, opacity * 0.60, 0.23);
-      paintRibbon(ctx, samples, color, stroke.size * 0.80, opacity * 0.10, 0.26);
-      break;
-    case 'watercolor':
-      paintRibbon(ctx, samples, color, stroke.size * 1.55, opacity * 0.17, 0.28, 0.22, 2381);
-      paintRibbon(ctx, samples, color, stroke.size * 1.20, opacity * 0.23, 0.30, 0.15, 953);
-      paintRibbon(ctx, samples, color, stroke.size * 0.80, opacity * 0.13, 0.48, 0.12, 593);
-      speckle(ctx, samples, stroke, opacity * 0.18, 2, 0.75);
-      break;
-    case 'crayon':
-      paintRibbon(ctx, samples, color, stroke.size * 1.05, opacity * 0.67, 0.5, 0.36, 8271);
-      speckle(ctx, samples, stroke, opacity * 0.48, 1, 0.65);
-      break;
-    case 'airbrush':
-      airbrush(ctx, samples, stroke, opacity);
-      break;
-    case 'glitter':
-      paintRibbon(ctx, samples, color, stroke.size * 0.45, opacity * 0.35, 0.25);
-      sparkles(ctx, samples, stroke, opacity);
-      break;
-    case 'ink':
-    default:
-      paintRibbon(ctx, samples, color, stroke.size, opacity, 0.92);
-  }
+  ctx.drawImage(canvas, left, top);
   ctx.restore();
 }
 
-// Smart fills sit underneath linework, so tapping an enclosed shape never hides
-// its outline. Preserve order within both groups for shared deterministic replay.
 export function paintArtwork(ctx: CanvasRenderingContext2D, strokes: readonly Stroke[]) {
+  // Kept consistent for both participants: fills below linework, while an
+  // eraser removes transparency from ONLY its own separately clipped layer.
   for (const stroke of strokes) if (!stroke.hidden && stroke.tool === 'fill') paintStroke(ctx, stroke);
   for (const stroke of strokes) if (!stroke.hidden && stroke.tool !== 'fill') paintStroke(ctx, stroke);
 }

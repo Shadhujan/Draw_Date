@@ -1,5 +1,5 @@
 import { createClient, type RealtimeChannel } from '@supabase/supabase-js';
-import type { BoardMessage, Partner } from './types';
+import type { BoardMessage, Partner, Seat } from './types';
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim() as string | undefined;
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() as string | undefined;
@@ -30,6 +30,7 @@ export function joinChannel(
     onMessage: (message: BoardMessage) => void;
     onMembers: (members: Partner[]) => void;
     onStatus: (status: Status) => void;
+    onSeat: (seat: Seat, userId: string) => void;
   },
 ): { send: (message: BoardMessage) => void; close: () => void } | null {
   if (!client) return null;
@@ -72,6 +73,12 @@ export function joinChannel(
         return;
       }
 
+      if (admission.data !== 'host' && admission.data !== 'guest') {
+        handlers.onStatus('error');
+        return;
+      }
+      const seat: Seat = admission.data;
+      handlers.onSeat(seat, session.user.id);
       client.realtime.setAuth(session.access_token);
       channel = client.channel(`draw-date:secure:${roomId}`, {
         config: {
@@ -105,7 +112,7 @@ export function joinChannel(
         if (closed) return;
         if (status === 'SUBSCRIBED') {
           handlers.onStatus('connected');
-          void channel?.track({ ...partner, userId: session.user.id });
+          void channel?.track({ ...partner, userId: session.user.id, seat });
           void channel?.send({ type: 'broadcast', event: 'drawing',
             payload: { kind: 'state-request', from: partner.id } satisfies BoardMessage });
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {

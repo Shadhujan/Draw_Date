@@ -1,4 +1,4 @@
-import { paintStroke } from './brushes';
+import { renderArtwork } from './layers';
 import type { BlendMode, PaintGradient, Point, Stroke } from './types';
 
 // A small deterministic raster is used ONLY to detect a bounded area. The
@@ -58,8 +58,16 @@ export async function createFillMask(strokes: readonly Stroke[], guide: SVGSVGEl
   if (image) ctx.drawImage(image, 0, 0, 1000, 700);
   // Only outlines are barriers, not already filled shapes. Eraser strokes can
   // create intentional openings in the boundary.
-  for (const stroke of strokes) {
-    if (!stroke.hidden && stroke.tool !== 'fill') paintStroke(ctx, stroke);
+  const ink = document.createElement('canvas');
+  ink.width = MASK_WIDTH;
+  ink.height = MASK_HEIGHT;
+  const inkCtx = ink.getContext('2d');
+  if (inkCtx) {
+    renderArtwork(inkCtx, strokes.filter((stroke) => stroke.tool !== 'fill'));
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(ink, 0, 0);
+    ctx.restore();
   }
   const pixels = ctx.getImageData(0, 0, MASK_WIDTH, MASK_HEIGHT).data;
   const walls = new Uint8Array(MASK_WIDTH * MASK_HEIGHT);

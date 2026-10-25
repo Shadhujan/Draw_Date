@@ -7,9 +7,11 @@ export type BlendMode = typeof BLEND_MODES[number];
 export type PaintGradient = { to: string; angle: number };
 export type TemplateId = 'heart' | 'flowers' | 'bunny' | 'blank';
 export type Point = { x: number; y: number; p?: number };
+export type Seat = 'host' | 'guest';
 export type Stroke = {
   id: string;
   by: string;
+  owner?: Seat; // Absent on historical, read-only strokes.
   tool: Tool;
   color: string;
   size: number;
@@ -29,6 +31,7 @@ export type Partner = {
   name: string;
   accent: string;
   joinedAt: number;
+  seat?: Seat;
 };
 export type BoardState = {
   template: TemplateId;
@@ -44,7 +47,7 @@ export type SelectionEdit = (
   | { action: 'move'; ids: string[]; dx: number; dy: number }
   | { action: 'visibility'; ids: string[]; visible: boolean }
   | { action: 'duplicate'; sources: string[]; copies: string[]; dx: number; dy: number }
-) & { opId: string; revision: number; stamp: number };
+) & { opId: string; revision: number; stamp: number; owner: Seat };
 
 export type BoardMessage =
   | { kind: 'state-request'; from: string }
@@ -57,5 +60,6 @@ export type BoardMessage =
   | { kind: 'selection-edit'; from: string; edit: SelectionEdit }
   | { kind: 'lesson-step'; from: string; revision: number; step: number; stamp: number }
   | { kind: 'reset'; from: string; template: TemplateId; revision: number }
+  | { kind: 'lasso-gesture'; from: string; seat: Seat; mode: 'paint' | 'outline' | 'drag'; points: Point[]; color: string; done: boolean; ids?: string[]; dx?: number; dy?: number }
   | { kind: 'cursor'; from: string; x: number; y: number; name: string; color: string }
   | { kind: 'reaction'; from: string; name: string; value: string };
