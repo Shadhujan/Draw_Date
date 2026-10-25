@@ -96,6 +96,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   const lastCursorAt = useRef(0);
   const pointerId = useRef<number | null>(null);
   const renderRequest = useRef(0);
+  const latestRender = useRef<() => void>(() => {});
   const painted = useRef<{ canvas: HTMLCanvasElement; strokes: Stroke[] } | null>(null);
   strokesRef.current = props.strokes;
   drafts.current = props.remoteDrafts;
@@ -185,15 +186,25 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     if (props.mode === 'lasso') drawSelection(ctx, strokesRef.current, props.selectedIds, selectionGesture.current);
   }, [props.mode, props.selectedIds, props.myId, props.color, props.opacity, props.gradientTo, props.gradientAngle, props.blend]);
 
+  // Keep the scheduler stable across React rerenders. Previously, every new
+  // stroke changed the selection-array identity, recreated this callback, and
+  // retriggered the ResizeObserver cleanup. That cleanup cancelled the queued
+  // animation frame without clearing renderRequest, leaving the canvas blank
+  // even while the stroke counter continued increasing.
+  latestRender.current = render;
   const scheduleRender = useCallback(() => {
     if (renderRequest.current) return;
     renderRequest.current = requestAnimationFrame(() => {
       renderRequest.current = 0;
-      render();
+      latestRender.current();
     });
-  }, [render]);
+  }, []);
 
-  useEffect(() => { scheduleRender(); }, [props.strokes, props.draftVersion, props.mode, props.selectedIds, scheduleRender]);
+  useEffect(() => { scheduleRender(); }, [
+    props.strokes, props.draftVersion, props.mode, props.selectedIds,
+    props.color, props.opacity, props.gradientTo, props.gradientAngle,
+    props.blend, scheduleRender,
+  ]);
 
   useEffect(() => {
     const element = canvas.current;
@@ -201,18 +212,28 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     const resize = () => {
       const rect = element.getBoundingClientRect();
       const dpr = Math.min(devicePixelRatio || 1, 2.5);
-      element.width = Math.round(rect.width * dpr);
-      element.height = Math.round(rect.height * dpr);
+      const width = Math.max(1, Math.round(rect.width * dpr));
+      const height = Math.max(1, Math.round(rect.height * dpr));
+      // Writing canvas.width/height clears its pixels, even if unchanged.
+      // Only resize when necessary, and rebuild the cached ink at that size.
+      if (element.width === width && element.height === height) return;
+      element.width = width;
+      element.height = height;
+      painted.current = null;
       scheduleRender();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(element);
     resize();
-    return () => {
-      observer.disconnect();
-      if (renderRequest.current) cancelAnimationFrame(renderRequest.current);
-    };
+    return () => observer.disconnect();
   }, [scheduleRender]);
+
+  useEffect(() => () => {
+    if (renderRequest.current) {
+      cancelAnimationFrame(renderRequest.current);
+      renderRequest.current = 0;
+    }
+  }, []);
 
   useImperativeHandle(externalRef, () => ({
     async save(guide: SVGSVGElement | null) {
