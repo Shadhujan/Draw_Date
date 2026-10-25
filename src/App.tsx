@@ -42,8 +42,7 @@ function roomUrl(room: string) {
 function Emblem() {
   return (
     <span className="emblem" aria-hidden="true">
-      <Heart size={20} fill="currentColor" strokeWidth={1.7} />
-      <span className="emblem-stroke" />
+      <img src="/brand-bear.svg" width={43} height={43} alt="" draggable={false} />
     </span>
   );
 }

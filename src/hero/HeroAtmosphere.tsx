@@ -107,6 +107,54 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
         return { mesh, x, y, phase, baseSize: size };
       });
 
+      // Hand-crafted 3D studio objects: pencils, glowing art trails, and small
+      // pearlescent pigment orbs. These are meshes/curves, not a video overlay.
+      const animatedProps: { group: InstanceType<typeof THREE.Group>; x: number; y: number; phase: number }[] = [];
+      const ownedGeometry: { dispose: () => void }[] = [];
+      const ownedMaterials: { dispose: () => void }[] = [];
+      function makePencil(color: number, x: number, y: number, angle: number, phase: number) {
+        const group = new THREE.Group();
+        const shaftGeo = new THREE.CylinderGeometry(.082, .082, 1.08, 6);
+        const tipGeo = new THREE.ConeGeometry(.082, .22, 6);
+        const nibGeo = new THREE.ConeGeometry(.024, .09, 8);
+        const capGeo = new THREE.CylinderGeometry(.087, .087, .12, 8);
+        const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: .08, roughness: .4 });
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0xf7d5ab, roughness: .75 });
+        const nibMat = new THREE.MeshStandardMaterial({ color: 0x665b67, metalness: .18, roughness: .45 });
+        const capMat = new THREE.MeshStandardMaterial({ color: 0xf4e3c5, metalness: .45, roughness: .23 });
+        const shaft = new THREE.Mesh(shaftGeo,bodyMat); group.add(shaft);
+        const tip = new THREE.Mesh(tipGeo,woodMat);tip.position.y = -.65;tip.rotation.z = Math.PI;group.add(tip);
+        const nib = new THREE.Mesh(nibGeo,nibMat);nib.position.y = -.79;nib.rotation.z = Math.PI;group.add(nib);
+        const cap = new THREE.Mesh(capGeo,capMat);cap.position.y = .6;group.add(cap);
+        group.rotation.z = angle;
+        scene.add(group);animatedProps.push({group,x,y,phase});
+        ownedGeometry.push(shaftGeo,tipGeo,nibGeo,capGeo);
+        ownedMaterials.push(bodyMat,woodMat,nibMat,capMat);
+      }
+      makePencil(theme === 'sage' ? 0xaad4aa : 0xf3a8c7, -.62, -.24, -.58, .2);
+      makePencil(theme === 'sage' ? 0xd4cf86 : 0xa9c7a1, .64, .02, .62, 1.8);
+      // Curved three-dimensional ribbons wrap around the artwork, rather than
+      // drifting randomly in front of the bears' faces.
+      const ribbons: InstanceType<typeof THREE.Mesh>[] = [];
+      for (let i = 0; i < 2; i++) {
+        const points = Array.from({length: 28}, (_, j) => {
+          const a = j / 27 * Math.PI * 1.47 + i * Math.PI;
+          return new THREE.Vector3(Math.sin(a) * (1.1 + .13*i), Math.cos(a) * (.58+.1*i) -.04, -.35 - i*.16);
+        });
+        const curve = new THREE.CatmullRomCurve3(points);
+        const geometry = new THREE.TubeGeometry(curve, 86, .011 + .006*i, 6, false);
+        const material = new THREE.MeshBasicMaterial({color:theme==='sage'?0xc5e3ac:0xffe8c1,transparent:true,opacity:.61,depthWrite:false});
+        const mesh=new THREE.Mesh(geometry,material);scene.add(mesh);ribbons.push(mesh);
+        ownedGeometry.push(geometry);ownedMaterials.push(material);
+      }
+      const orbs: { mesh: InstanceType<typeof THREE.Mesh>; x:number;y:number;phase:number }[]=[];
+      const orbGeometry=new THREE.SphereGeometry(.065,12,8);ownedGeometry.push(orbGeometry);
+      const orbMat=new THREE.MeshPhysicalMaterial({color:theme==='sage'?0xe8ffcb:0xffd9ed,roughness:.13,metalness:.03,clearcoat:1,transparent:true,opacity:.85});ownedMaterials.push(orbMat);
+      for(let i=0;i<(mobile?5:9);i++) {
+        const mesh=new THREE.Mesh(orbGeometry,orbMat);scene.add(mesh);
+        orbs.push({mesh,x:Math.sin(i*2.4)*.42,y:Math.cos(i*1.7)*.42,phase:i*.75});
+      }
+
       let width = 1;
       let height = 6;
       const resize = () => {
@@ -154,6 +202,16 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
           const s = 1 + Math.sin(t * 1.1 + i) * 0.055;
           mesh.scale.setScalar(baseSize * s);
         });
+        animatedProps.forEach(({group,x,y,phase}) => {
+          group.position.x = x*width*.92 + Math.sin(t*.63+phase)*.12;
+          group.position.y = y*height + Math.cos(t*.74+phase)*.12;
+          group.rotation.y = Math.sin(t*.48+phase)*.3;
+        });
+        orbs.forEach(({mesh,x,y,phase}) => {
+          mesh.position.set(x*width + Math.sin(t*.47+phase)*.14, y*height + Math.sin(t*.65+phase)*.16, -.22);
+          mesh.scale.setScalar(.65 + .28*(1+Math.sin(t*1.3+phase)));
+        });
+        ribbons.forEach((mesh,i)=>{mesh.rotation.z=Math.sin(t*.26+i)*.07;});
         // Keep the depth motion extremely gentle so the welcome screen stays calm.
         scene.rotation.y += (pointerX * 0.075 - scene.rotation.y) * 0.035;
         scene.rotation.x += (-pointerY * 0.06 - scene.rotation.x) * 0.035;
@@ -173,6 +231,8 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
         heartMat.dispose();
         blushMat.dispose();
         pearlMat.dispose();
+        ownedGeometry.forEach(g => g.dispose());
+        ownedMaterials.forEach(m => m.dispose());
         renderer.dispose();
       };
     }

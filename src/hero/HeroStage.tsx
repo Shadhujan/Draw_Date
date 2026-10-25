@@ -22,6 +22,8 @@ export function HeroStage({ theme }: { theme: 'rose' | 'sage' }) {
     <section className="hero-world" aria-label="Two cuddly bears drawing together in a cozy studio" ref={stageRef}
       onPointerMove={move} onPointerLeave={reset}>
       <div className="hero-world-halo" aria-hidden="true" />
+      <div className="hero-environment" aria-hidden="true" />
+      <div className="hero-environment-light" aria-hidden="true" />
       <div className="hero-window" aria-hidden="true">
         <span className="window-light" />
         <span className="window-glass" />
