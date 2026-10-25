@@ -1,6 +1,6 @@
 export const BRUSH_IDS = ['ink', 'pencil', 'marker', 'watercolor', 'crayon', 'airbrush', 'glitter'] as const;
 export type BrushStyle = typeof BRUSH_IDS[number];
-export type Tool = 'pen' | 'eraser';
+export type Tool = 'pen' | 'eraser' | 'fill';
 export type CanvasMode = Tool | 'lasso' | 'picker';
 export const BLEND_MODES = ['normal', 'multiply', 'screen'] as const;
 export type BlendMode = typeof BLEND_MODES[number];
@@ -21,6 +21,7 @@ export type Stroke = {
   lastEdit?: number;
   lastEditor?: string;
   points: Point[];
+  holes?: Point[][]; // Optional unpainted islands in an enclosed smart-filled region.
 };
 export type Partner = {
   id: string;
@@ -32,6 +33,9 @@ export type BoardState = {
   template: TemplateId;
   strokes: Stroke[];
   revision: number;
+  lessonStep?: number;
+  lessonStamp?: number;
+  lessonActor?: string;
 };
 export type Cursor = { by: string; x: number; y: number; name: string; color: string };
 
@@ -49,6 +53,7 @@ export type BoardMessage =
   | { kind: 'stroke-end'; from: string; id: string }
   | { kind: 'undo'; from: string; id: string }
   | { kind: 'selection-edit'; from: string; edit: SelectionEdit }
+  | { kind: 'lesson-step'; from: string; revision: number; step: number; stamp: number }
   | { kind: 'reset'; from: string; template: TemplateId; revision: number }
   | { kind: 'cursor'; from: string; x: number; y: number; name: string; color: string }
   | { kind: 'reaction'; from: string; name: string; value: string };

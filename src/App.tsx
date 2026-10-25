@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Copy, Download, Eraser, Eye,
-  EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, Palette, Pipette, RotateCcw, Sparkles, Trash2, UsersRound, X,
+  ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eraser, Eye,
+  EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, PaintBucket, Palette, Pipette, RotateCcw, Sparkles, Trash2, UsersRound, X,
 } from 'lucide-react';
 import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
 import { brushChoices, paintStroke } from './brushes';
 import { getHexChannels, setHexChannel } from './colorPaint';
+import { lessonSteps, traceCoverage } from './guidedLesson';
+import { makeSmartFill } from './smartFill';
 import { GuideArt, templates } from './templates';
-import type { BlendMode, BrushStyle, CanvasMode, PaintGradient, Stroke, TemplateId } from './types';
+import type { BlendMode, BrushStyle, CanvasMode, PaintGradient, Point, Stroke, TemplateId } from './types';
 import { useRoom } from './useRoom';
 
 type Theme = 'rose' | 'sage';
@@ -162,6 +164,10 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   const [blendMode, setBlendMode] = useState<BlendMode>('normal');
   const [size, setSize] = useState(12);
   const [guideVisible, setGuideVisible] = useState(true);
+  const [fillMessage, setFillMessage] = useState('Tap inside a closed shape to fill it.');
+  const [fillBusy, setFillBusy] = useState(false);
+  const filling = useRef(false);
+  const [traceProgress, setTraceProgress] = useState(0);
   const [copyState, setCopyState] = useState(false);
   const canvas = useRef<CanvasHandle>(null);
   const full = room.connection === 'full';
@@ -178,6 +184,44 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   const colorPreview = gradient
     ? `linear-gradient(${90 + gradientAngle}deg, ${color}, ${secondColor})` : color;
   const rgb = getHexChannels(color);
+  const guided = lessonSteps[room.board.template];
+  const step = Math.min(guided.length - 1, room.board.lessonStep ?? 0);
+  const currentLesson = guided[Math.max(0, step)];
+
+  useEffect(() => {
+    if (!guideVisible || !guided.length) { setTraceProgress(0); return; }
+    const frame = requestAnimationFrame(() => {
+      const svg = document.querySelector<SVGSVGElement>('.canvas-shell .guide-layer');
+      setTraceProgress(traceCoverage(svg, step, room.board.strokes));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [guideVisible, step, guided.length, room.board.strokes, room.board.template]);
+
+  async function fillAt(at: Point) {
+    if (!canDraw || filling.current) return;
+    filling.current = true;
+    setFillBusy(true);
+    setFillMessage('Finding the little space…');
+    const revision = room.board.revision;
+    try {
+      const guide = guideVisible ? document.querySelector<SVGSVGElement>('.canvas-shell .guide-layer') : null;
+      const result = await makeSmartFill(room.board.strokes, guide, at, {
+        id: crypto.randomUUID(), by: room.myId, color, opacity: opacity / 100,
+        ...(gradient ? { gradient } : {}), blend: blendMode,
+      });
+      if (result.ok) {
+        setFillMessage(room.addFill(result.stroke, revision)
+          ? 'A little splash of color ♡' : 'The page changed. Tap again to fill.');
+      } else {
+        setFillMessage(result.reason === 'unavailable'
+          ? 'Color fill is unavailable on this device.'
+          : 'This area is open. Draw a closed outline first ♡');
+      }
+    } finally {
+      filling.current = false;
+      setFillBusy(false);
+    }
+  }
 
   function chooseTool(next: CanvasMode) {
     setTool(next);
@@ -201,7 +245,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   }
 
   function reset(template: TemplateId) {
-    if (template === room.board.template && room.board.strokes.length === 0) return;
+    if (template === room.board.template && room.board.strokes.length === 0 && (room.board.lessonStep ?? 0) === 0) return;
     if (room.board.strokes.length && !window.confirm('Start a fresh page for both of you? Save this one first if you want to keep it.')) return;
     setSelectedIds([]);
     room.changeTemplate(template);
@@ -238,14 +282,14 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               </button>
             </div>
             <div className={`canvas-shell ${!canDraw ? 'canvas-locked' : ''}`}>
-              {guideVisible && <GuideArt template={room.board.template} className="guide-layer" />}
+              {guideVisible && <GuideArt template={room.board.template} className="guide-layer" step={step} />}
               <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
                 remoteDrafts={room.remoteDrafts} draftVersion={room.draftVersion} myId={room.myId}
                 mode={tool} selectedIds={visibleSelected} onSelectionChange={setSelectedIds}
                 onMoveSelection={room.moveSelection} onDeleteSelection={removeSelected}
                 brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}
                 gradientTo={gradient?.to ?? null} gradientAngle={gradientAngle} blend={blendMode}
-                onPickColor={(sampled) => { setColor(sampled); setTool('pen'); }}
+                onPickColor={(sampled) => { setColor(sampled); setTool('pen'); }} onFill={fillAt}
                 onStart={room.begin} onPoints={room.points} onEnd={room.end} onCursor={room.sendCursor} />
               {room.cursors.filter((cursor) => cursor.by !== room.myId).map((cursor) => (
                 <div className="remote-cursor" key={cursor.by} style={{ left: `${cursor.x / 10}%`, top: `${cursor.y / 7}%` }}>
@@ -258,17 +302,34 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               {full && <div className="full-overlay"><UsersRound size={27} /><strong>This studio is for two.</strong><span>Both places are taken right now.</span></div>}
               {room.connection === 'error' && <div className="full-overlay"><strong>Connection lost</strong><span>Refresh to reconnect. Your local drawing is saved.</span></div>}
             </div>
-            <div className="canvas-footer"><span>{tool === 'lasso' ? 'Draw a loop, then drag the selected ink ♡' : tool === 'picker' ? 'Tap a color on the canvas to pick it ✿' : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
+            {guideVisible && currentLesson && <div className="lesson-stepper" aria-label="Guided drawing steps">
+              <button className="lesson-nav" type="button" title="Previous drawing step"
+                aria-label="Previous drawing step" disabled={step <= 0 || !canDraw}
+                onClick={() => room.setLessonStep(step - 1)}><ChevronLeft size={18} /></button>
+              <div className="lesson-step-copy">
+                <div className="lesson-step-line"><span className="lesson-counter">STEP {step + 1} / {guided.length}</span><strong>{currentLesson.title}</strong><span className="lesson-coverage">{traceProgress}% traced</span></div>
+                <p>{currentLesson.hint}</p>
+                <div className="lesson-track" role="progressbar" aria-label="Reference-line tracing coverage"
+                  aria-valuemin={0} aria-valuemax={100} aria-valuenow={traceProgress}>
+                  <span style={{ width: `${traceProgress}%` }} />
+                </div>
+              </div>
+              <button className="lesson-nav next" type="button" title="Next drawing step"
+                aria-label="Next drawing step" disabled={step >= guided.length - 1 || !canDraw}
+                onClick={() => room.setLessonStep(step + 1)}><ChevronRight size={18} /></button>
+            </div>}
+            <div className="canvas-footer"><span>{tool === 'lasso' ? 'Draw a loop, then drag the selected ink ♡' : tool === 'picker' ? 'Tap a color on the canvas to pick it ✿' : tool === 'fill' ? fillMessage : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
           </div>
 
           <div className="tools-bar" role="toolbar" aria-label="Drawing tools">
             <div className="tools-top-row">
-              <div className="tool-mode" aria-label="Brush, eraser or lasso selection">
+              <div className="tool-mode" aria-label="Brush, eraser, fill or lasso selection">
                 <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => chooseTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
                 <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-label="Eraser" aria-pressed={tool === 'eraser'} onClick={() => chooseTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
+                <button className={`tool-btn ${tool === 'fill' ? 'selected' : ''}`} title="Smart fill inside closed shapes" aria-label="Smart fill" aria-pressed={tool === 'fill'} disabled={fillBusy} onClick={() => chooseTool('fill')}><PaintBucket size={18} /><span>Fill</span></button>
                 <button className={`tool-btn ${tool === 'lasso' ? 'selected' : ''}`} title="Lasso selection" aria-label="Lasso selection" aria-pressed={tool === 'lasso'} onClick={() => chooseTool('lasso')}><Lasso size={18} /><span>Lasso</span></button>
               </div>
-              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} disabled={tool === 'lasso'} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
+              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} disabled={tool === 'lasso' || tool === 'fill'} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
               <div className="tool-actions">
                 <button className="icon-action" aria-label="Undo last action" title="Undo last action" disabled={!room.canUndo || !canDraw} onClick={room.undo}><RotateCcw size={18} /></button>
                 <button className="icon-action save-action" aria-label="Download drawing as PNG" title="Download drawing as PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
@@ -321,9 +382,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                   aria-pressed={color === option.value && tool === 'pen'}
                   className={`swatch ${color.toLowerCase() === option.value.toLowerCase() && tool === 'pen' ? 'active' : ''}`}
                   style={{ backgroundColor: option.value }}
-                  onClick={() => { setColor(option.value); chooseTool('pen'); }} />)}
+                  onClick={() => { setColor(option.value); if (tool !== 'fill') chooseTool('pen'); }} />)}
                 <label className="custom-color" title="Choose your own ink color">
-                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); chooseTool('pen'); }} />
+                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); if (tool !== 'fill') chooseTool('pen'); }} />
                   <span aria-hidden="true">+</span>
                 </label>
               </div>
@@ -388,7 +449,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
             </section>}
             </>}
           </div>
-          <p className="studio-footer-tip">{tool === 'lasso'
+          <p className="studio-footer-tip">{tool === 'fill' ? 'Smart Fill colors enclosed shapes, including guide outlines. It saves as movable vector artwork for both of you.' : tool === 'lasso'
             ? 'Lasso selects complete brush strokes. Move, duplicate or delete them together — your person sees each edit.'
             : tool === 'picker' ? 'Tap on a finished mark to pick its visible color; then keep drawing.'
             : 'Blend and gradient settings apply to new strokes and sync with your person.'}</p>

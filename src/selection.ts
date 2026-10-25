@@ -26,7 +26,7 @@ export function selectionBounds(strokes: readonly Stroke[], selectedIds: readonl
     if (!ids.has(stroke.id) || stroke.hidden) continue;
     const rect = boundsOfPoints(stroke.points);
     if (!rect) continue;
-    const pad = Math.max(7, stroke.size * (stroke.brush === 'airbrush' ? 2.2 : 0.9));
+    const pad = stroke.tool === 'fill' ? 0 : Math.max(7, stroke.size * (stroke.brush === 'airbrush' ? 2.2 : 0.9));
     bounds = bounds ? {
       left: Math.min(bounds.left, rect.left - pad),
       top: Math.min(bounds.top, rect.top - pad),
@@ -82,13 +82,15 @@ export function strokesInsideLasso(strokes: readonly Stroke[], polygon: readonly
   if (!region) return [];
   const result: string[] = [];
   for (const stroke of strokes) {
-    if (stroke.hidden || stroke.tool !== 'pen' || result.length >= MAX_SELECTION) continue;
+    if (stroke.hidden || (stroke.tool !== 'pen' && stroke.tool !== 'fill') || result.length >= MAX_SELECTION) continue;
     const box = boundsOfPoints(stroke.points);
     if (!box || !boxesOverlap({
       left: box.left - stroke.size, right: box.right + stroke.size,
       top: box.top - stroke.size, bottom: box.bottom + stroke.size,
     }, region)) continue;
-    if (stroke.points.some((point) => inside(point, polygon))) {
+    if (stroke.points.some((point) => inside(point, polygon)) ||
+        (stroke.tool === 'fill' && inside(polygon[0], stroke.points) &&
+          !(stroke.holes ?? []).some((hole) => inside(polygon[0], hole)))) {
       result.push(stroke.id);
       continue;
     }
@@ -130,6 +132,10 @@ function shifted(stroke: Stroke, dx: number, dy: number, stamp: number, actor: s
     ...stroke, lastEdit: stamp, lastEditor: actor,
     points: stroke.points.map((point) => ({ ...point, x: Math.max(0, Math.min(CANVAS_WIDTH, point.x + dx)),
       y: Math.max(0, Math.min(CANVAS_HEIGHT, point.y + dy)) })),
+    ...(stroke.holes ? { holes: stroke.holes.map((ring) => ring.map((point) => ({
+      ...point, x: Math.max(0, Math.min(CANVAS_WIDTH, point.x + dx)),
+      y: Math.max(0, Math.min(CANVAS_HEIGHT, point.y + dy)),
+    }))) } : {}),
   };
 }
 

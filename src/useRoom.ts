@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appendStroke, isPoint, isStroke, isTemplate, loadBoard, sanitizeBoard, saveBoard } from './board';
 import { joinChannel, realtimeConfigured } from './realtime';
+import { validLessonStep } from './guidedLesson';
 import { applySelectionEdit, isSelectionEdit, limitTranslation, MAX_SELECTION } from './selection';
 import type { BoardMessage, BoardState, Cursor, Partner, Point, SelectionEdit, Stroke, TemplateId } from './types';
 
@@ -112,8 +113,13 @@ export function useRoom(roomId: string, displayName: string) {
               const known = new Set(incoming.strokes.map((stroke) => stroke.id));
               const merged = incoming.strokes.map((stroke) => latestStroke(ours.get(stroke.id), stroke));
               const unshared = current.strokes.filter((stroke) => !known.has(stroke.id));
+              const aStamp = incoming.lessonStamp ?? 0;
+              const bStamp = current.lessonStamp ?? 0;
+              const newer = aStamp > bStamp || (aStamp === bStamp &&
+                (incoming.lessonActor ?? '') >= (current.lessonActor ?? '')) ? incoming : current;
               return {
-                ...incoming,
+                ...incoming, lessonStep: newer.lessonStep ?? 0,
+                lessonStamp: newer.lessonStamp, lessonActor: newer.lessonActor,
                 // Hidden status and transforms survive rejoin instead of being
                 // resurrected by the previous union-only reconciliation.
                 strokes: [...merged, ...unshared].slice(-300),
@@ -161,10 +167,26 @@ export function useRoom(roomId: string, displayName: string) {
               strokes: applySelectionEdit(current.strokes, message.edit, message.from) }));
             break;
           }
+          case 'lesson-step': {
+            if (typeof message.from !== 'string' || message.from.length > 128 ||
+                !Number.isSafeInteger(message.revision) ||
+                message.revision !== boardRef.current.revision ||
+                !validLessonStep(boardRef.current.template, message.step) ||
+                !Number.isSafeInteger(message.stamp) || message.stamp < 1) break;
+            logicalStamp.current = Math.max(logicalStamp.current, message.stamp);
+            updateBoard((current) => {
+              const previous = current.lessonStamp ?? 0;
+              if (message.stamp < previous || (message.stamp === previous &&
+                  message.from <= (current.lessonActor ?? ''))) return current;
+              return { ...current, lessonStep: message.step, lessonStamp: message.stamp,
+                lessonActor: message.from };
+            });
+            break;
+          }
           case 'reset':
             if (!isTemplate(message.template) || !Number.isSafeInteger(message.revision) ||
                 message.revision <= boardRef.current.revision) break;
-            updateBoard(() => ({ template: message.template, strokes: [], revision: message.revision }));
+            updateBoard(() => ({ template: message.template, strokes: [], revision: message.revision, lessonStep: 0 }));
             remoteDrafts.current.clear();
             history.current = [];
             setUndoDepth(0);
@@ -225,6 +247,24 @@ export function useRoom(roomId: string, displayName: string) {
     send({ kind: 'stroke-end', from: myId, id: stroke.id });
   }, [send, addStroke, myId, remember]);
 
+  // A completed fill is a single vector event, not a flood of pixel messages.
+  const addFill = useCallback((stroke: Stroke, revision: number): boolean => {
+    if (boardRef.current.revision !== revision || !isStroke(stroke) || stroke.tool !== 'fill') return false;
+    addStroke(stroke);
+    remember({ action: 'stroke', id: stroke.id });
+    send({ kind: 'stroke-start', from: myId, stroke });
+    send({ kind: 'stroke-end', from: myId, id: stroke.id });
+    return true;
+  }, [addStroke, remember, send, myId]);
+
+  const setLessonStep = useCallback((step: number) => {
+    const before = boardRef.current;
+    if (!validLessonStep(before.template, step) || (before.lessonStep ?? 0) === step) return;
+    const stamp = ++logicalStamp.current;
+    updateBoard((current) => ({ ...current, lessonStep: step, lessonStamp: stamp, lessonActor: myId }));
+    send({ kind: 'lesson-step', from: myId, revision: before.revision, step, stamp });
+  }, [myId, send, updateBoard]);
+
   const undo = useCallback(() => {
     const last = history.current.pop();
     if (last) setUndoDepth(history.current.length);
@@ -267,7 +307,7 @@ export function useRoom(roomId: string, displayName: string) {
 
   const changeTemplate = useCallback((template: TemplateId) => {
     const revision = Math.max(boardRef.current.revision + 1, Date.now());
-    updateBoard(() => ({ template, strokes: [], revision }));
+    updateBoard(() => ({ template, strokes: [], revision, lessonStep: 0 }));
     history.current = [];
     setUndoDepth(0);
     remoteDrafts.current.clear();
@@ -287,7 +327,7 @@ export function useRoom(roomId: string, displayName: string) {
   return {
     board, connection, members, cursors, reactions, myId,
     remoteDrafts: remoteDrafts.current, draftVersion,
-    begin, points, end, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => stroke.by === myId && !stroke.hidden),
+    begin, points, end, addFill, setLessonStep, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => stroke.by === myId && !stroke.hidden),
     moveSelection, deleteSelection, duplicateSelection,
     changeTemplate, sendCursor, react,
   };

@@ -206,6 +206,23 @@ function sparkles(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stro
 
 export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   if (!stroke.points.length) return;
+  if (stroke.tool === 'fill') {
+    ctx.save();
+    ctx.globalCompositeOperation = stroke.blend === 'multiply' || stroke.blend === 'screen' ? stroke.blend : 'source-over';
+    ctx.globalAlpha = clamp(stroke.opacity ?? 1, 0.1, 1);
+    ctx.fillStyle = strokePaint(ctx, stroke);
+    ctx.beginPath();
+    const rings = [stroke.points, ...(stroke.holes ?? [])];
+    for (const ring of rings) {
+      if (ring.length < 3) continue;
+      ctx.moveTo(ring[0].x, ring[0].y);
+      for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i].x, ring[i].y);
+      ctx.closePath();
+    }
+    ctx.fill('evenodd');
+    ctx.restore();
+    return;
+  }
   const samples = sampleStroke(stroke.points);
   const opacity = clamp(stroke.opacity ?? 1, 0.1, 1);
   ctx.save();
@@ -253,4 +270,11 @@ export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
       paintRibbon(ctx, samples, color, stroke.size, opacity, 0.92);
   }
   ctx.restore();
+}
+
+// Smart fills sit underneath linework, so tapping an enclosed shape never hides
+// its outline. Preserve order within both groups for shared deterministic replay.
+export function paintArtwork(ctx: CanvasRenderingContext2D, strokes: readonly Stroke[]) {
+  for (const stroke of strokes) if (!stroke.hidden && stroke.tool === 'fill') paintStroke(ctx, stroke);
+  for (const stroke of strokes) if (!stroke.hidden && stroke.tool !== 'fill') paintStroke(ctx, stroke);
 }

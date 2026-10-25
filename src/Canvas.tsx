@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { paintStroke } from './brushes';
+import { paintArtwork, paintStroke } from './brushes';
 import { colorOverPaper } from './colorPaint';
 import { limitTranslation, selectionBounds, strokesInsideLasso } from './selection';
 import type { BlendMode, BrushStyle, CanvasMode, Point, Stroke } from './types';
@@ -31,6 +31,7 @@ type Props = {
   gradientAngle: number;
   blend: BlendMode;
   onPickColor: (hex: string) => void;
+  onFill: (point: Point) => void;
   size: number;
   disabled?: boolean;
   onStart: (stroke: Stroke) => void;
@@ -109,16 +110,15 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, element.width, element.height);
       ctx.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
-      for (const stroke of strokesRef.current) {
-        if (stroke.hidden) continue;
-        if (!selected.has(stroke.id)) {
-          paintStroke(ctx, stroke);
-        } else {
-          paintStroke(ctx, { ...stroke, points: stroke.points.map((point) => ({
+      const displaced = strokesRef.current.filter((stroke) => !stroke.hidden).map((stroke) =>
+        selected.has(stroke.id) ? {
+          ...stroke,
+          points: stroke.points.map((point) => ({ ...point, x: point.x + moving.dx, y: point.y + moving.dy })),
+          holes: stroke.holes?.map((ring) => ring.map((point) => ({
             ...point, x: point.x + moving.dx, y: point.y + moving.dy,
-          })) });
-        }
-      }
+          }))),
+        } : stroke);
+      paintArtwork(ctx, displaced);
       drafts.current.forEach((stroke) => paintStroke(ctx, stroke));
       if (current.current) paintStroke(ctx, current.current);
       drawSelection(ctx, strokesRef.current, props.selectedIds, moving);
@@ -136,7 +136,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       const background = layer.getContext('2d');
       if (background) {
         background.setTransform(element.width / WORLD_W, 0, 0, element.height / WORLD_H, 0, 0);
-        strokesRef.current.forEach((stroke) => { if (!stroke.hidden) paintStroke(background, stroke); });
+        paintArtwork(background, strokesRef.current);
       }
       painted.current = { canvas: layer, strokes: strokesRef.current };
     } else if (old.strokes !== strokesRef.current) {
@@ -144,7 +144,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       // Fast path for appending strokes: leave the already painted layers alone.
       // Undo, resetting or history reconciliation will rebuild the full layer.
       const canAppend = next.length >= old.strokes.length &&
-        old.strokes.every((stroke, index) => next[index] === stroke);
+        old.strokes.every((stroke, index) => next[index] === stroke) &&
+        !next.slice(old.strokes.length).some((stroke) => stroke.tool === 'fill');
       const background = old.canvas.getContext('2d');
       if (background) {
         if (!canAppend) {
@@ -152,7 +153,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
           background.clearRect(0, 0, old.canvas.width, old.canvas.height);
         }
         background.setTransform(old.canvas.width / WORLD_W, 0, 0, old.canvas.height / WORLD_H, 0, 0);
-        (canAppend ? next.slice(old.strokes.length) : next).forEach((stroke) => { if (!stroke.hidden) paintStroke(background, stroke); });
+        paintArtwork(background, canAppend ? next.slice(old.strokes.length) : next);
       }
       painted.current = { canvas: old.canvas, strokes: next };
     }
@@ -206,6 +207,15 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       if (!ctx) return;
       ctx.fillStyle = '#fffdfa';
       ctx.fillRect(0, 0, 1600, 1120);
+      // Draw smart-filled shapes below the guide and all visible outlines.
+      const fills = document.createElement('canvas');
+      fills.width = 1600; fills.height = 1120;
+      const fillsCtx = fills.getContext('2d');
+      if (fillsCtx) {
+        fillsCtx.setTransform(1.6, 0, 0, 1.6, 0, 0);
+        paintArtwork(fillsCtx, strokesRef.current.filter((stroke) => stroke.tool === 'fill'));
+        ctx.drawImage(fills, 0, 0);
+      }
       if (guide) {
         try {
           const svg = new XMLSerializer().serializeToString(guide);
@@ -227,7 +237,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       const inkCtx = ink.getContext('2d');
       if (!inkCtx) return;
       inkCtx.setTransform(1.6, 0, 0, 1.6, 0, 0);
-      strokesRef.current.forEach((stroke) => { if (!stroke.hidden) paintStroke(inkCtx, stroke); });
+      paintArtwork(inkCtx, strokesRef.current.filter((stroke) => stroke.tool !== 'fill'));
       ctx.drawImage(ink, 0, 0);
       const a = document.createElement('a');
       a.href = out.toDataURL('image/png');
@@ -266,6 +276,10 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       const y = Math.max(0, Math.min(surface.height - 1, Math.floor((event.clientY - rect.top) / rect.height * surface.height)));
       try { props.onPickColor(colorOverPaper(context.getImageData(x, y, 1, 1).data)); }
       catch { /* Sampling can be unavailable if the browser blocks pixel access. */ }
+      return;
+    }
+    if (props.mode === 'fill') {
+      props.onFill(initial);
       return;
     }
     if (props.mode === 'lasso') {
@@ -400,7 +414,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       ref={canvas}
       className="drawing-canvas"
       aria-label={props.mode === 'lasso' ? 'Draw a loop to select strokes, then drag to move them' :
-        props.mode === 'picker' ? 'Tap a painted area to sample its color' : 'Draw with your pointer, touch or pen'}
+        props.mode === 'picker' ? 'Tap a painted area to sample its color' :
+        props.mode === 'fill' ? 'Tap inside a closed shape to fill it with color' : 'Draw with your pointer, touch or pen'}
       tabIndex={props.mode === 'lasso' ? 0 : -1}
       onKeyDown={(event) => {
         if (props.mode !== 'lasso') return;
@@ -414,7 +429,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       onPointerUp={pointerUp}
       onPointerCancel={pointerCancel}
       onContextMenu={(event: React.MouseEvent<HTMLCanvasElement>) => event.preventDefault()}
-      style={{ cursor: props.disabled ? 'not-allowed' : props.mode === 'eraser' ? 'cell' : props.mode === 'lasso' && props.selectedIds.length ? 'move' : 'crosshair' }}
+      style={{ cursor: props.disabled ? 'not-allowed' : props.mode === 'eraser' ? 'cell' : props.mode === 'fill' ? 'copy' : props.mode === 'lasso' && props.selectedIds.length ? 'move' : 'crosshair' }}
     />
   );
 });

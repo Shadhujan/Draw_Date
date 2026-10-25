@@ -1,4 +1,5 @@
 import { BLEND_MODES, BRUSH_IDS } from './types';
+import { validLessonStep } from './guidedLesson';
 import type { BoardState, Point, Stroke, TemplateId } from './types';
 
 const ROOM_RE = /^[a-f0-9]{32}$/;
@@ -15,7 +16,7 @@ export function createRoomId(): string {
 }
 
 export function emptyBoard(): BoardState {
-  return { template: 'heart', strokes: [], revision: 0 };
+  return { template: 'heart', strokes: [], revision: 0, lessonStep: 0 };
 }
 
 export function isPoint(value: unknown): value is Point {
@@ -34,7 +35,7 @@ export function isStroke(value: unknown): value is Stroke {
   if (!value || typeof value !== 'object') return false;
   const s = value as Record<string, unknown>;
   return typeof s.id === 'string' && s.id.length < 128 && typeof s.by === 'string' &&
-    (s.tool === 'pen' || s.tool === 'eraser') && typeof s.color === 'string' && /^#[\da-fA-F]{6}$/.test(s.color) &&
+    (s.tool === 'pen' || s.tool === 'eraser' || s.tool === 'fill') && typeof s.color === 'string' && /^#[\da-fA-F]{6}$/.test(s.color) &&
     typeof s.size === 'number' && Number.isFinite(s.size) && s.size > 0 && s.size <= 80 &&
     (s.brush === undefined || BRUSH_IDS.some((brush) => brush === s.brush)) &&
     (s.opacity === undefined || (typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0.1 && s.opacity <= 1)) &&
@@ -50,7 +51,11 @@ export function isStroke(value: unknown): value is Stroke {
     (s.lastEdit === undefined || (typeof s.lastEdit === 'number' && Number.isSafeInteger(s.lastEdit) && s.lastEdit >= 0)) &&
     (s.lastEditor === undefined || (typeof s.lastEditor === 'string' && s.lastEditor.length < 128)) &&
     Array.isArray(s.points) &&
-    s.points.length > 0 && s.points.length <= MAX_POINTS && s.points.every(isPoint);
+    s.points.length > (s.tool === 'fill' ? 2 : 0) && s.points.length <= MAX_POINTS && s.points.every(isPoint) &&
+    (s.tool === 'fill' ? (s.holes === undefined ||
+      (Array.isArray(s.holes) && s.holes.length <= 12 && s.holes.every((ring) =>
+        Array.isArray(ring) && ring.length >= 3 && ring.length <= MAX_POINTS && ring.every(isPoint)) &&
+        s.points.length + s.holes.reduce((sum, ring) => sum + ring.length, 0) <= MAX_POINTS)) : s.holes === undefined);
 }
 
 export function sanitizeBoard(value: unknown): BoardState | null {
@@ -58,7 +63,12 @@ export function sanitizeBoard(value: unknown): BoardState | null {
   const b = value as Record<string, unknown>;
   if (!isTemplate(b.template) || !Array.isArray(b.strokes) || b.strokes.length > MAX_STROKES ||
       !b.strokes.every(isStroke) || !Number.isSafeInteger(b.revision) || Number(b.revision) < 0) return null;
-  return { template: b.template, strokes: b.strokes, revision: Number(b.revision) };
+  if (b.lessonStep !== undefined && !validLessonStep(b.template, b.lessonStep)) return null;
+  if (b.lessonStamp !== undefined && (!Number.isSafeInteger(b.lessonStamp) || Number(b.lessonStamp) < 0)) return null;
+  if (b.lessonActor !== undefined && (typeof b.lessonActor !== 'string' || b.lessonActor.length > 128)) return null;
+  return { template: b.template, strokes: b.strokes, revision: Number(b.revision),
+    lessonStep: b.lessonStep ?? 0, lessonStamp: b.lessonStamp as number | undefined,
+    lessonActor: b.lessonActor as string | undefined };
 }
 
 export function loadBoard(room: string): BoardState {
