@@ -1,23 +1,31 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, Check, ChevronRight, Copy, Download, Eraser, Heart, Link2,
-  LockKeyhole, Paintbrush, RotateCcw, Sparkles, UsersRound, WandSparkles,
+  ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Download, Eraser, Eye,
+  EyeOff, Heart, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, UsersRound,
 } from 'lucide-react';
+import { BearCouple } from './BearCouple';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
-import { realtimeConfigured } from './realtime';
 import { GuideArt, templates } from './templates';
 import type { TemplateId, Tool } from './types';
 import { useRoom } from './useRoom';
 
+type Theme = 'rose' | 'sage';
+const themeStorageKey = 'draw-date-theme';
+
 const colors = [
-  { name: 'Berry', value: '#b85b7e' },
-  { name: 'Plum', value: '#8067b0' },
-  { name: 'Ocean', value: '#5a95ad' },
-  { name: 'Sage', value: '#6e9f82' },
-  { name: 'Honey', value: '#dc9c54' },
-  { name: 'Ink', value: '#5c5363' },
+  { name: 'Rose', value: '#DB84A2' },
+  { name: 'Lilac', value: '#9E88D0' },
+  { name: 'Sky', value: '#6B9FCD' },
+  { name: 'Sage', value: '#7EA78A' },
+  { name: 'Honey', value: '#DAAA65' },
+  { name: 'Cocoa', value: '#745B56' },
 ];
+
+function initialTheme(): Theme {
+  try { return localStorage.getItem(themeStorageKey) === 'sage' ? 'sage' : 'rose'; }
+  catch { return 'rose'; }
+}
 
 function roomUrl(room: string) {
   const url = new URL(window.location.origin + window.location.pathname);
@@ -27,9 +35,26 @@ function roomUrl(room: string) {
 
 function Emblem() {
   return (
-    <div className="emblem" aria-hidden="true">
-      <Heart size={21} fill="currentColor" strokeWidth={2.2} />
+    <span className="emblem" aria-hidden="true">
+      <Heart size={20} fill="currentColor" strokeWidth={1.7} />
       <span className="emblem-stroke" />
+    </span>
+  );
+}
+
+function ThemeSwitch({ theme, onChange }: { theme: Theme; onChange: (theme: Theme) => void }) {
+  return (
+    <div className="theme-switch" role="group" aria-label="Choose your color theme">
+      <button type="button" aria-label="Pink romance theme" aria-pressed={theme === 'rose'}
+        title="Pink romance" className={theme === 'rose' ? 'active' : ''}
+        onClick={() => onChange('rose')}>
+        <Heart size={15} fill={theme === 'rose' ? 'currentColor' : 'none'} /> <span>Pink</span>
+      </button>
+      <button type="button" aria-label="Sage green theme" aria-pressed={theme === 'sage'}
+        title="Sage green" className={theme === 'sage' ? 'active' : ''}
+        onClick={() => onChange('sage')}>
+        <Leaf size={15} /> <span>Sage</span>
+      </button>
     </div>
   );
 }
@@ -38,67 +63,77 @@ function Avatar({ name, alt = false }: { name: string; alt?: boolean }) {
   return <span className={`avatar ${alt ? 'avatar-alt' : ''}`} title={name}>{name.trim().slice(0, 1).toUpperCase() || '?'}</span>;
 }
 
-function Welcome({ room, onStart }: { room: string | null; onStart: (name: string, id: string) => void }) {
-  const [name, setName] = useState(() => localStorage.getItem('doodle-date-name') || '');
+function Welcome({ room, theme, onThemeChange, onStart }: {
+  room: string | null;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+  onStart: (name: string, id: string) => void;
+}) {
+  const [name, setName] = useState(() => {
+    try { return localStorage.getItem('doodle-date-name') || ''; }
+    catch { return ''; }
+  });
   const [error, setError] = useState('');
-  const [joining] = useState(Boolean(room));
 
   function enter() {
     const cleaned = name.trim().replace(/\s+/g, ' ').slice(0, 24);
-    if (!cleaned) { setError('Tell us what we should call you first.'); return; }
-    localStorage.setItem('doodle-date-name', cleaned);
+    if (!cleaned) { setError('Add a little nickname before we begin.'); return; }
+    try { localStorage.setItem('doodle-date-name', cleaned); } catch { /* Nickname saving is optional. */ }
     onStart(cleaned, room && isRoomId(room) ? room : createRoomId());
   }
 
   return (
     <div className="welcome-screen">
-      <div className="decor-circle one" /><div className="decor-circle two" />
-      <header className="welcome-nav"><Emblem /><span>doodle date</span><span className="top-caption">a little place for two</span></header>
+      <div className="ambient-orb orb-one" aria-hidden="true" />
+      <div className="ambient-orb orb-two" aria-hidden="true" />
+      <header className="welcome-nav">
+        <div className="brand-lockup"><Emblem /><span>doodle date<small>little moments, together</small></span></div>
+        <div className="nav-actions"><span className="top-caption">A little love, in every line ♡</span><ThemeSwitch theme={theme} onChange={onThemeChange} /></div>
+      </header>
       <main className="welcome-main">
         <section className="welcome-copy">
-          <div className="eyebrow"><Sparkles size={16} /> YOUR PRIVATE LITTLE ART STUDIO</div>
-          <h1>Draw a little <em>closer.</em></h1>
-          <p>One canvas, two hearts, and all the tiny imperfect lines that make something beautiful together.</p>
+          <div className="eyebrow"><Sparkles size={15} /> A LITTLE PLACE FOR TWO</div>
+          <h1>Draw together.<br /><em>Feel closer.</em></h1>
+          <p>A quiet little corner to make something silly, lovely, and entirely yours.</p>
           <div className="welcome-form">
             <label htmlFor="name">What should we call you?</label>
-            <input
-              id="name"
-              autoComplete="nickname"
-              maxLength={24}
-              value={name}
-              placeholder="Your nickname"
-              onChange={(event) => { setName(event.target.value); setError(''); }}
-              onKeyDown={(event) => { if (event.key === 'Enter') enter(); }}
-              autoFocus
-            />
-            {error && <span className="form-error">{error}</span>}
+            <input id="name" autoComplete="nickname" maxLength={24} value={name}
+              placeholder="Your cute nickname" onChange={(event) => { setName(event.target.value); setError(''); }}
+              onKeyDown={(event) => { if (event.key === 'Enter') enter(); }} />
+            {error && <span className="form-error" role="alert">{error}</span>}
             <button className="primary-btn" onClick={enter}>
-              {joining ? 'Join your drawing date' : 'Create our drawing date'}
-              <ChevronRight size={18} />
+              {room ? 'Join the drawing date' : 'Start our drawing date'}
+              <span className="button-icon"><ArrowUpRight size={19} /></span>
             </button>
-            <div className="form-note"><LockKeyhole size={14} /> No accounts. No payment. Just a link for two.</div>
+            <span className="form-note">Just pick a name. No signup needed for this preview.</span>
           </div>
+          <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The best drawings aren't perfect. They're ours.</div>
         </section>
-        <section className="hero-art" aria-hidden="true">
+        <section className="hero-art" aria-label="Two cuddly bear mascots on a handmade card">
+          <div className="hero-card-back" aria-hidden="true" />
           <div className="hero-paper">
-            <span className="paper-label">TO: MY FAVORITE PERSON</span>
-            <GuideArt template="heart" className="hero-guide" />
-            <div className="hero-signature">made with <span>love</span></div>
+            <div className="paper-card-top"><span>TO MY FAVOURITE PERSON</span><span>✳  ✿</span></div>
+            <BearCouple className="hero-bears" />
+            <div className="hero-paper-message">just us & our little doodles <span>♡</span></div>
           </div>
-          <span className="hero-sparkle sparkle-a">\u2726</span>
-          <span className="hero-sparkle sparkle-b">\u2727</span>
-          <div className="hero-sticker">two artists<br />one little world <span>\u2665</span></div>
+          <div className="hero-tape" aria-hidden="true" />
+          <div className="hero-sticker" aria-hidden="true">made with <strong>love</strong> <span>♥</span></div>
+          <span className="hero-sparkle sparkle-a" aria-hidden="true">✧</span>
+          <span className="hero-sparkle sparkle-b" aria-hidden="true">✳</span>
         </section>
       </main>
-      <footer className="welcome-footer">
-        <span>Handmade moments, not perfect masterpieces.</span>
-        <span className="welcome-footer-right">made for smiles \u2661</span>
-      </footer>
+      <footer className="welcome-footer"><span>Made for slow evenings and happy hearts.</span><span>♡</span></footer>
     </div>
   );
 }
 
-function Studio({ roomId, name, onExit }: { roomId: string; name: string; onExit: () => void }) {
+function Studio({ roomId, name, theme, onThemeChange, onExit }: {
+  roomId: string;
+  name: string;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
+  onExit: () => void;
+}) {
   const room = useRoom(roomId, name);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState(colors[0].value);
@@ -117,152 +152,141 @@ function Studio({ roomId, name, onExit }: { roomId: string; name: string; onExit
       setCopyState(true);
       window.setTimeout(() => setCopyState(false), 2000);
     } catch {
-      window.prompt('Copy your private invite link:', roomUrl(roomId));
+      window.prompt('Copy your room link:', roomUrl(roomId));
     }
   }
 
   function reset(template: TemplateId) {
     if (template === room.board.template && room.board.strokes.length === 0) return;
-    if (room.board.strokes.length && !window.confirm('Start a fresh page for both of you? You can save this one first.')) return;
+    if (room.board.strokes.length && !window.confirm('Start a fresh page for both of you? Save this one first if you want to keep it.')) return;
     room.changeTemplate(template);
   }
 
   return (
     <div className="studio-screen">
       <header className="studio-header">
-        <div className="studio-brand"><Emblem /><div><strong>doodle date</strong><span>your little corner of the internet</span></div></div>
-        <div className="header-center"><span className="room-pill"><LockKeyhole size={13} /> INVITE-ONLY LINK</span></div>
-        <button className="leave-button" onClick={onExit}><ArrowLeft size={16} /><span>Leave studio</span></button>
+        <div className="studio-brand"><Emblem /><div><strong>doodle date</strong><span>your little art studio</span></div></div>
+        <div className="studio-header-actions">
+          <ThemeSwitch theme={theme} onChange={onThemeChange} />
+          <button className="leave-button" aria-label="Leave drawing studio" onClick={onExit}><ArrowLeft size={17} /><span>Leave</span></button>
+        </div>
       </header>
 
       <main className="studio-layout">
         <section className="studio-main">
           <div className="studio-heading">
             <div>
-              <div className="eyebrow compact">YOUR LITTLE ART DATE</div>
-              <h1>Make something <em>together.</em></h1>
-              <p>No perfect lines needed. Just you two, having fun.</p>
+              <div className="eyebrow compact"><Heart size={12} fill="currentColor" /> OUR LITTLE ART DATE</div>
+              <h1>Today's little <em>masterpiece.</em></h1>
+              <p>One canvas. Two hearts. No perfect lines needed.</p>
             </div>
-            <button className="invite-btn" onClick={copyInvite}><Link2 size={17} /> {copyState ? 'Copied!' : 'Invite partner'} {copyState ? <Check size={16} /> : <Copy size={14} />}</button>
+            <button className="invite-btn" onClick={copyInvite} aria-label={copyState ? 'Room link copied' : 'Copy invitation link'}>
+              <Link2 size={16} /> <span>{copyState ? 'Link copied' : 'Invite your person'}</span>{copyState ? <Check size={15} /> : <ArrowUpRight size={15} />}
+            </button>
           </div>
 
           <div className="paper-frame">
             <div className="paper-header">
-              <div className="paper-dots"><i /><i /><i /></div>
-              <span className="paper-title">OUR MASTERPIECE <span>\u2661</span></span>
-              <span className="page-number">01 / forever</span>
+              <div className="paper-header-title"><span className="paper-flower">✿</span><span>OUR CANVAS</span></div>
+              <button className={`guide-chip ${guideVisible ? 'active' : ''}`} aria-pressed={guideVisible} onClick={() => setGuideVisible((value) => !value)}>
+                {guideVisible ? <Eye size={14} /> : <EyeOff size={14} />} <span>{guideVisible ? 'Hints on' : 'Hints off'}</span>
+              </button>
             </div>
             <div className={`canvas-shell ${!canDraw ? 'canvas-locked' : ''}`}>
               {guideVisible && <GuideArt template={room.board.template} className="guide-layer" />}
-              <DrawingCanvas
-                key={room.board.revision}
-                ref={canvas}
-                strokes={room.board.strokes}
-                remoteDrafts={room.remoteDrafts}
-                draftVersion={room.draftVersion}
-                myId={room.myId}
-                tool={tool}
-                color={color}
-                size={size}
-                disabled={!canDraw}
-                onStart={room.begin}
-                onPoints={room.points}
-                onEnd={room.end}
-                onCursor={room.sendCursor}
-              />
+              <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
+                remoteDrafts={room.remoteDrafts} draftVersion={room.draftVersion} myId={room.myId}
+                tool={tool} color={color} size={size} disabled={!canDraw}
+                onStart={room.begin} onPoints={room.points} onEnd={room.end} onCursor={room.sendCursor} />
               {room.cursors.filter((cursor) => cursor.by !== room.myId).map((cursor) => (
                 <div className="remote-cursor" key={cursor.by} style={{ left: `${cursor.x / 10}%`, top: `${cursor.y / 7}%` }}>
-                  <Paintbrush size={15} fill="#d8c2f4" color="#856bc2" />
-                  <span>{cursor.name}</span>
+                  <Paintbrush size={15} fill="#e7cde0" color="#856bc2" /><span>{cursor.name}</span>
                 </div>
               ))}
               {room.reactions.map((reaction, i) => (
-                <span key={reaction.id} className="floating-reaction" style={{ right: `${24 + i * 16}%` }}>
-                  <b>{reaction.value}</b><small>{reaction.name}</small>
-                </span>
+                <span key={reaction.id} className="floating-reaction" style={{ right: `${24 + i * 16}%` }}><b>{reaction.value}</b><small>{reaction.name}</small></span>
               ))}
-              {full && <div className="full-overlay"><UsersRound size={28} /><strong>This studio is for two.</strong><span>It looks like both places are taken.</span></div>}
-              {room.connection === 'error' && <div className="full-overlay"><strong>Connection lost</strong><span>Refresh to try reconnecting. Your local drawing is saved.</span></div>}
+              {full && <div className="full-overlay"><UsersRound size={27} /><strong>This studio is for two.</strong><span>Both places are taken right now.</span></div>}
+              {room.connection === 'error' && <div className="full-overlay"><strong>Connection lost</strong><span>Refresh to reconnect. Your local drawing is saved.</span></div>}
             </div>
-            <div className="canvas-footer"><span>Every little line counts.</span><span>{room.board.strokes.length} strokes of magic <Sparkles size={12} /></span></div>
+            <div className="canvas-footer"><span>Little strokes, big feelings ♡</span><span>{room.board.strokes.length} strokes</span></div>
           </div>
 
-          <div className="tools-bar">
-            <div className="tool-mode" aria-label="Drawing tools">
-              <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Pen" aria-pressed={tool === 'pen'} onClick={() => setTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
-              <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-pressed={tool === 'eraser'} onClick={() => setTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
-            </div>
-            <div className="vertical-rule" />
-            <div className="swatches" aria-label="Drawing colors">
-              {colors.map((option) => <button
-                key={option.value} title={option.name} aria-label={option.name}
-                aria-pressed={color === option.value && tool === 'pen'}
-                className={`swatch ${color === option.value && tool === 'pen' ? 'active' : ''}`}
-                style={{ backgroundColor: option.value }}
-                onClick={() => { setColor(option.value); setTool('pen'); }} />)}
-            </div>
-            <div className="vertical-rule" />
-            <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={4} max={34} step={2} value={size} onChange={(event) => setSize(Number(event.target.value))} /></label>
-            <div className="tool-actions">
-              <button className="icon-action" title="Undo your last stroke" disabled={!myStrokes} onClick={room.undo}><RotateCcw size={18} /></button>
-              <button className="icon-action" title="Save PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
-            </div>
-          </div>
-          <div className="studio-footer-tip"><WandSparkles size={15} /> Tip: draw with your finger, a stylus, or your mouse. Both your lines appear on the same page.</div>
-        </section>
-
-        <aside className="studio-sidebar">
-          <section className="side-card people-card">
-            <div className="side-heading"><h2>Your little duo</h2><span className="tiny-hearts">\u2665 \u2661</span></div>
-            <div className="people-list">
-              <div className="person"><Avatar name={name} /><div><strong>{name}</strong><span><i className="presence-dot" /> You're here</span></div></div>
-              <div className={`person ${!onlinePartner ? 'awaiting' : ''}`}>
-                {onlinePartner ? <Avatar name={onlinePartner.name} alt /> : <div className="avatar awaiting-avatar">+</div>}
-                <div><strong>{onlinePartner?.name || 'Your favorite person'}</strong><span>{onlinePartner ? <><i className="presence-dot" /> Drawing with you</> : 'A spot saved just for them'}</span></div>
+          <div className="tools-bar" role="toolbar" aria-label="Drawing tools">
+            <div className="tools-top-row">
+              <div className="tool-mode" aria-label="Brush or eraser">
+                <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => setTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
+                <button className={`tool-btn ${tool === 'eraser' ? 'selected' : ''}`} title="Eraser" aria-label="Eraser" aria-pressed={tool === 'eraser'} onClick={() => setTool('eraser')}><Eraser size={18} /><span>Eraser</span></button>
+              </div>
+              <label className="size-slider"><span>Brush size</span><input aria-label="Brush size" type="range" min={4} max={34} step={2} value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
+              <div className="tool-actions">
+                <button className="icon-action" aria-label="Undo your last stroke" title="Undo your last stroke" disabled={!myStrokes} onClick={room.undo}><RotateCcw size={18} /></button>
+                <button className="icon-action save-action" aria-label="Download drawing as PNG" title="Download drawing as PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
               </div>
             </div>
-            <div className="people-message">{room.connection === 'solo'
-              ? 'Solo preview: connect Supabase to make the invitation work across devices.'
-              : room.connection === 'connecting' ? 'Connecting your drawing studio...'
-              : room.connection === 'full' ? 'This room already has two artists.'
-              : room.connection === 'error' ? 'There is a connection problem.'
-              : onlinePartner ? 'You are both here. Time to make some magic!' : 'Send the invite link and start doodling while you wait.'}</div>
-            <button className="secondary-btn fullwidth" onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Link copied!' : 'Copy invitation link'}</button>
-          </section>
+            <div className="tools-bottom-row">
+              <span className="palette-label">COLORS</span>
+              <div className="swatches" aria-label="Drawing colors">
+                {colors.map((option) => <button key={option.value} title={option.name} aria-label={option.name}
+                  aria-pressed={color === option.value && tool === 'pen'}
+                  className={`swatch ${color === option.value && tool === 'pen' ? 'active' : ''}`}
+                  style={{ backgroundColor: option.value }}
+                  onClick={() => { setColor(option.value); setTool('pen'); }} />)}
+                <label className="custom-color" title="Choose your own ink color">
+                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); setTool('pen'); }} />
+                  <span aria-hidden="true">+</span>
+                </label>
+              </div>
+              <span className="palette-whisper">Every color feels like you ♡</span>
+            </div>
+          </div>
+          <p className="studio-footer-tip">Draw with your mouse, finger, or stylus. Your marks appear together in the same room.</p>
+        </section>
 
+        <aside className="studio-sidebar" aria-label="Your drawing date">
           <section className="side-card prompt-card">
-            <div className="side-heading"><h2>What shall we draw?</h2><Sparkles size={17} color="#d291a2" /></div>
-            <p>Pick a tiny prompt, or let your imagination run wild.</p>
+            <div className="side-heading"><div><span className="side-eyebrow">LET'S MAKE SOMETHING</span><h2>Pick a little doodle</h2></div><Sparkles size={18} /></div>
             <div className="template-list">
               {templates.map((template) => (
-                <button
-                  key={template.id}
-                  className={`template-option ${template.id === room.board.template ? 'active' : ''}`}
-                  onClick={() => reset(template.id)}
-                  disabled={full}
-                >
-                  <div className="template-preview">{template.id === 'blank' ? <span className="blank-spark">\u2727</span> : <GuideArt template={template.id} />}</div>
-                  <div><strong>{template.name}</strong><span>{template.subtitle}</span></div>
+                <button key={template.id} className={`template-option ${template.id === room.board.template ? 'active' : ''}`}
+                  aria-pressed={template.id === room.board.template} onClick={() => reset(template.id)} disabled={full}>
+                  <span className="template-preview">{template.id === 'blank' ? <span className="blank-spark">✧</span> : <GuideArt template={template.id} />}</span>
+                  <span className="template-label"><strong>{template.name}</strong><small>{template.subtitle}</small></span>
                   {template.id === room.board.template ? <Check size={16} /> : <ChevronRight size={16} />}
                 </button>
               ))}
             </div>
-            <button className="guide-toggle" onClick={() => setGuideVisible((visible) => !visible)}>
-              {guideVisible ? 'Hide' : 'Show'} tracing guide <span>{guideVisible ? 'ON' : 'OFF'}</span>
-            </button>
+          </section>
+
+          <section className="side-card people-card">
+            <div className="side-heading"><div><span className="side-eyebrow">SIDE BY SIDE</span><h2>Our little duo</h2></div><span className="tiny-hearts">♡</span></div>
+            <div className="people-list">
+              <div className="person"><Avatar name={name} /><div><strong>{name}</strong><span><i className="presence-dot" /> You're here</span></div></div>
+              <div className={`person ${!onlinePartner ? 'awaiting' : ''}`}>
+                {onlinePartner ? <Avatar name={onlinePartner.name} alt /> : <div className="avatar awaiting-avatar">♡</div>}
+                <div><strong>{onlinePartner?.name || 'Your person'}</strong><span>{onlinePartner ? <><i className="presence-dot" /> Drawing with you</> : 'A seat waiting for them'}</span></div>
+              </div>
+            </div>
+            <p className="people-message" role="status">{room.connection === 'solo'
+              ? 'Solo preview. Connect Supabase to draw together across devices.'
+              : room.connection === 'connecting' ? 'Connecting your studio...'
+              : room.connection === 'full' ? 'This room already has two artists.'
+              : room.connection === 'error' ? 'We lost the connection. Please retry.'
+              : onlinePartner ? 'Together at last. Let the doodling begin ♡' : 'Share the room link so they can join you.'}</p>
+            <button className="secondary-btn fullwidth" onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Copied!' : 'Copy room link'}</button>
           </section>
 
           <section className="side-card love-card">
-            <div className="love-card-top"><Heart size={20} fill="#efb6c7" color="#c47494" /> A little something extra</div>
-            <p>Send a tiny surprise across the canvas.</p>
+            <div className="love-card-top"><span className="love-stamp">♥</span><strong>A little love note</strong></div>
+            <p>Send them a tiny surprise while you draw.</p>
             <div className="reaction-actions">
-              <button onClick={() => room.react('heart')}><Heart size={17} fill="currentColor" /> Send love</button>
-              <button onClick={() => room.react('sparkle')}><Sparkles size={17} /> Sparkle</button>
+              <button onClick={() => room.react('heart')}><Heart size={16} fill="currentColor" /> Love</button>
+              <button onClick={() => room.react('sparkle')}><Sparkles size={16} /> Sparkle</button>
             </div>
           </section>
         </aside>
       </main>
-      <footer className="site-footer">A tiny corner of the universe, just for two. <span>\u2661</span></footer>
+      <footer className="site-footer">A tiny corner of the universe for two. <span>♡</span></footer>
     </div>
   );
 }
@@ -271,10 +295,15 @@ export default function App() {
   const initialRoom = new URLSearchParams(window.location.search).get('room');
   const [roomId, setRoomId] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+
+  function changeTheme(next: Theme) {
+    setTheme(next);
+    try { localStorage.setItem(themeStorageKey, next); } catch { /* Theme still works this session. */ }
+  }
 
   function start(displayName: string, room: string) {
-    const url = roomUrl(room);
-    window.history.replaceState(null, '', url);
+    window.history.replaceState(null, '', roomUrl(room));
     setName(displayName);
     setRoomId(room);
   }
@@ -284,6 +313,10 @@ export default function App() {
     setRoomId(null);
   }
 
-  if (roomId) return <Studio key={roomId} roomId={roomId} name={name} onExit={leave} />;
-  return <Welcome room={isRoomId(initialRoom) ? initialRoom : null} onStart={start} />;
+  return (
+    <div className="app-theme" data-theme={theme}>
+      {roomId ? <Studio key={roomId} roomId={roomId} name={name} theme={theme} onThemeChange={changeTheme} onExit={leave} />
+        : <Welcome room={isRoomId(initialRoom) ? initialRoom : null} theme={theme} onThemeChange={changeTheme} onStart={start} />}
+    </div>
+  );
 }
