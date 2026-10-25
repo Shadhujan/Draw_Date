@@ -3,7 +3,7 @@ import {
   ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Download, Eraser, Eye,
   EyeOff, Heart, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, UsersRound,
 } from 'lucide-react';
-import { BearCouple } from './BearCouple';
+import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
 import { GuideArt, templates } from './templates';
@@ -87,42 +87,31 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
       <div className="ambient-orb orb-one" aria-hidden="true" />
       <div className="ambient-orb orb-two" aria-hidden="true" />
       <header className="welcome-nav">
-        <div className="brand-lockup"><Emblem /><span>doodle date<small>little moments, together</small></span></div>
-        <div className="nav-actions"><span className="top-caption">A little love, in every line ♡</span><ThemeSwitch theme={theme} onChange={onThemeChange} /></div>
+        <div className="brand-lockup"><Emblem /><span>draw date<small>just us & a canvas</small></span></div>
+        <div className="nav-actions"><span className="top-caption">A tiny world, just for two ♡</span><ThemeSwitch theme={theme} onChange={onThemeChange} /></div>
       </header>
       <main className="welcome-main">
         <section className="welcome-copy">
-          <div className="eyebrow"><Sparkles size={15} /> A LITTLE PLACE FOR TWO</div>
-          <h1>Draw together.<br /><em>Feel closer.</em></h1>
-          <p>A quiet little corner to make something silly, lovely, and entirely yours.</p>
+          <div className="eyebrow"><Sparkles size={15} /> FOR THE LITTLE MOMENTS TOGETHER</div>
+          <h1>Draw together.<br /><em>Stay a little closer.</em></h1>
+          <p>A cozy little art studio for you and your favorite person. Make a mess, make a memory, make something yours.</p>
           <div className="welcome-form">
-            <label htmlFor="name">What should we call you?</label>
+            <label htmlFor="name">Your little nickname</label>
             <input id="name" autoComplete="nickname" maxLength={24} value={name}
-              placeholder="Your cute nickname" onChange={(event) => { setName(event.target.value); setError(''); }}
+              placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }}
               onKeyDown={(event) => { if (event.key === 'Enter') enter(); }} />
             {error && <span className="form-error" role="alert">{error}</span>}
             <button className="primary-btn" onClick={enter}>
-              {room ? 'Join the drawing date' : 'Start our drawing date'}
+              {room ? 'Join the drawing date' : 'Start drawing together'}
               <span className="button-icon"><ArrowUpRight size={19} /></span>
             </button>
             <span className="form-note">Just pick a name. No signup needed for this preview.</span>
           </div>
-          <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The best drawings aren't perfect. They're ours.</div>
+          <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The sweetest things are made together.</div>
         </section>
-        <section className="hero-art" aria-label="Two cuddly bear mascots on a handmade card">
-          <div className="hero-card-back" aria-hidden="true" />
-          <div className="hero-paper">
-            <div className="paper-card-top"><span>TO MY FAVOURITE PERSON</span><span>✳  ✿</span></div>
-            <BearCouple className="hero-bears" />
-            <div className="hero-paper-message">just us & our little doodles <span>♡</span></div>
-          </div>
-          <div className="hero-tape" aria-hidden="true" />
-          <div className="hero-sticker" aria-hidden="true">made with <strong>love</strong> <span>♥</span></div>
-          <span className="hero-sparkle sparkle-a" aria-hidden="true">✧</span>
-          <span className="hero-sparkle sparkle-b" aria-hidden="true">✳</span>
-        </section>
+        <HeroStage theme={theme} />
       </main>
-      <footer className="welcome-footer"><span>Made for slow evenings and happy hearts.</span><span>♡</span></footer>
+      <footer className="welcome-footer"><span>Made for slow evenings, soft smiles, and messy doodles.</span><span>♡</span></footer>
     </div>
   );
 }
@@ -165,7 +154,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   return (
     <div className="studio-screen">
       <header className="studio-header">
-        <div className="studio-brand"><Emblem /><div><strong>doodle date</strong><span>your little art studio</span></div></div>
+        <div className="studio-brand"><Emblem /><div><strong>draw date</strong><span>your little art studio</span></div></div>
         <div className="studio-header-actions">
           <ThemeSwitch theme={theme} onChange={onThemeChange} />
           <button className="leave-button" aria-label="Leave drawing studio" onClick={onExit}><ArrowLeft size={17} /><span>Leave</span></button>
