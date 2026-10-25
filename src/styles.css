@@ -200,13 +200,8 @@ a { color: inherit; }
   border-top: 10px solid #fff8ecb8; border-radius: 48% 46% 0 0 / 15% 18% 0 0;
   box-shadow: 0 -14px 55px #c9918240; }
 .hero-desk::after { content: ''; position: absolute; left: 5%; right: 5%; top: 21%; height: 1px; background: #bd917f1b; }
-.hero-drawing-paper { position: absolute; z-index: 4; bottom: 9%; left: 25%; width: 56%; height: 26%;
-  border: 7px solid #ffffff94; border-radius: 17px; transform: rotate(-5deg);
-  background: #fffef9e7; box-shadow: 0 14px 37px #9f6f642b, inset 0 0 0 1px #f5e4d6;
-}
-.hero-drawing-paper svg { width: 100%; height: 100%; opacity: .72; }
-.hero-plush-bears { position: absolute; z-index: 5; bottom: 16%; left: 0%; width: 106%; height: auto;
-  max-height: 67%; object-fit: contain; pointer-events: none; user-select: none;
+.hero-plush-bears { position: absolute; z-index: 5; bottom: 13%; left: 0; width: 100%; height: auto;
+  max-height: 77%; object-fit: contain; pointer-events: none; user-select: none;
   filter: drop-shadow(0 23px 25px #916b6530);
   animation: teddy-breathe 5s cubic-bezier(.42,0,.58,1) infinite alternate;
   transform: translate3d(var(--pointer-x), var(--pointer-y), 0);
@@ -452,8 +447,7 @@ a { color: inherit; }
   .welcome-whisper { margin-top: 20px; font-size: 11px; }
   .hero-world { height: auto; aspect-ratio: 1 / .91; min-height: 290px; border-radius: 27px; }
   .hero-window { border-width: 8px; }
-  .hero-plush-bears { bottom: 16%; max-height: 73%; }
-  .hero-drawing-paper { border-width: 4px; border-radius: 10px; }
+  .hero-plush-bears { bottom: 12%; max-height: 79%; }
   .world-top-label { font-size: 8px; padding: 8px 10px; }
   .world-top-label svg { width: 11px; }
   .world-sticky-note { padding: 8px 10px; font-size: 9px; border-radius: 8px; }

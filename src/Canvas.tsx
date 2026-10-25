@@ -214,7 +214,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     };
   }, [scheduleRender]);
 
-  useImperativeHandle<CanvasHandle>(externalRef, () => ({
+  useImperativeHandle(externalRef, () => ({
     async save(guide: SVGSVGElement | null) {
       if (!canvas.current) return;
       const out = document.createElement('canvas');

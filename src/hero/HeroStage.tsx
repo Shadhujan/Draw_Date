@@ -38,14 +38,7 @@ export function HeroStage({ theme }: { theme: 'rose' | 'sage' }) {
       <div className="hero-light-orb" aria-hidden="true" />
       <div className="world-top-label"><Heart size={14} fill="currentColor" /> MADE FOR TWO</div>
       <div className="hero-desk" aria-hidden="true" />
-      <div className="hero-drawing-paper" aria-hidden="true">
-        <svg viewBox="0 0 220 112" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M98 30C81 8 50 19 53 44c3 24 37 42 45 49 8-7 43-25 46-49 3-25-28-36-46-14Z" stroke="#e595ac" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 7" />
-          <path d="M171 25l6 8 9-2-6 8 3 8-10-4-8 6 3-11-8-5 10-2Z" fill="#f2c797" />
-          <path d="M22 57l4 9 11 1-9 6 2 11-8-6-10 5 3-11-8-6 11-1 4-8Z" fill="#c2d9b4" />
-        </svg>
-      </div>
-      <img className="hero-plush-bears" src="/hero/cuddle-bears.webp" width={639} height={353}
+      <img className="hero-plush-bears" src="/hero/cuddle-bears.webp?rev=0009" width={1593} height={939}
         alt="A little cream teddy bear and a caramel teddy bear smiling while drawing with pink and green pencils" draggable={false} />
       <div className="world-art-dots" aria-hidden="true"><span /><span /><span /></div>
       <div className="world-greeting"><Sparkles size={17} /><span>our little corner of the world</span></div>
