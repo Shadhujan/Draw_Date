@@ -1,3 +1,4 @@
+import { gradientSampler, strokePaint } from './colorPaint';
 import type { BrushStyle, Point, Stroke } from './types';
 
 export const brushChoices: { id: BrushStyle; name: string; description: string }[] = [
@@ -80,7 +81,7 @@ function radiusAt(sample: Sample, size: number, variability: number): number {
 function paintRibbon(
   ctx: CanvasRenderingContext2D,
   samples: Sample[],
-  color: string,
+  color: string | CanvasGradient,
   size: number,
   alpha: number,
   variability = 0.7,
@@ -137,7 +138,7 @@ function speckle(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Strok
   alpha: number, density: number, radiusFactor: number) {
   const random = seeded(`${stroke.id}:${stroke.brush ?? 'ink'}:grain`);
   ctx.save();
-  ctx.fillStyle = stroke.color;
+  ctx.fillStyle = strokePaint(ctx, stroke);
   ctx.globalAlpha = alpha;
   for (let i = 0; i < samples.length; i += density) {
     const sample = samples[i];
@@ -160,6 +161,7 @@ function radialColor(hex: string, alpha: number) {
 }
 
 function airbrush(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stroke, opacity: number) {
+  const colorAt = gradientSampler(stroke);
   ctx.save();
   let previousX = Number.NEGATIVE_INFINITY;
   let previousY = Number.NEGATIVE_INFINITY;
@@ -167,9 +169,10 @@ function airbrush(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stro
     const radius = stroke.size * (1.7 + sample.p * 0.6);
     if (Math.hypot(sample.x - previousX, sample.y - previousY) < radius * 0.25) continue;
     const gradient = ctx.createRadialGradient(sample.x, sample.y, 0, sample.x, sample.y, radius);
-    gradient.addColorStop(0, radialColor(stroke.color, 0.16 * opacity));
-    gradient.addColorStop(0.38, radialColor(stroke.color, 0.095 * opacity));
-    gradient.addColorStop(1, radialColor(stroke.color, 0));
+    const shade = colorAt(sample.x, sample.y);
+    gradient.addColorStop(0, radialColor(shade, 0.16 * opacity));
+    gradient.addColorStop(0.38, radialColor(shade, 0.095 * opacity));
+    gradient.addColorStop(1, radialColor(shade, 0));
     ctx.fillStyle = gradient;
     ctx.fillRect(sample.x - radius, sample.y - radius, radius * 2, radius * 2);
     previousX = sample.x;
@@ -180,6 +183,7 @@ function airbrush(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stro
 
 function sparkles(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stroke, opacity: number) {
   const random = seeded(`${stroke.id}:sparkles`);
+  const colorAt = gradientSampler(stroke);
   ctx.save();
   for (let i = 0; i < samples.length; i += 7) {
     const sample = samples[i];
@@ -188,7 +192,7 @@ function sparkles(ctx: CanvasRenderingContext2D, samples: Sample[], stroke: Stro
     const y = sample.y + (random() - random()) * spread;
     const r = Math.max(1.3, stroke.size * (0.08 + random() * 0.18));
     ctx.globalAlpha = (0.25 + random() * 0.65) * opacity;
-    ctx.fillStyle = random() > 0.52 ? '#fff2b5' : stroke.color;
+    ctx.fillStyle = random() > 0.52 ? '#fff2b5' : colorAt(x, y);
     ctx.beginPath();
     ctx.moveTo(x, y - r);
     ctx.quadraticCurveTo(x + r * 0.2, y - r * 0.2, x + r, y);
@@ -213,35 +217,40 @@ export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     return;
   }
 
+  // Blending happens inside the shared transparent ink layer. Each partner
+  // replays the same stroke order, and older strokes default to normal ink.
+  ctx.globalCompositeOperation = stroke.blend === 'multiply' || stroke.blend === 'screen'
+    ? stroke.blend : 'source-over';
+  const color = strokePaint(ctx, stroke);
   switch (stroke.brush ?? 'ink') {
     case 'pencil':
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 0.76, opacity * 0.72, 0.92, 0.08);
+      paintRibbon(ctx, samples, color, stroke.size * 0.76, opacity * 0.72, 0.92, 0.08);
       speckle(ctx, samples, stroke, opacity * 0.28, 3, 0.42);
       break;
     case 'marker':
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 1.15, opacity * 0.60, 0.23);
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 0.80, opacity * 0.10, 0.26);
+      paintRibbon(ctx, samples, color, stroke.size * 1.15, opacity * 0.60, 0.23);
+      paintRibbon(ctx, samples, color, stroke.size * 0.80, opacity * 0.10, 0.26);
       break;
     case 'watercolor':
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 1.55, opacity * 0.17, 0.28, 0.22, 2381);
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 1.20, opacity * 0.23, 0.30, 0.15, 953);
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 0.80, opacity * 0.13, 0.48, 0.12, 593);
+      paintRibbon(ctx, samples, color, stroke.size * 1.55, opacity * 0.17, 0.28, 0.22, 2381);
+      paintRibbon(ctx, samples, color, stroke.size * 1.20, opacity * 0.23, 0.30, 0.15, 953);
+      paintRibbon(ctx, samples, color, stroke.size * 0.80, opacity * 0.13, 0.48, 0.12, 593);
       speckle(ctx, samples, stroke, opacity * 0.18, 2, 0.75);
       break;
     case 'crayon':
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 1.05, opacity * 0.67, 0.5, 0.36, 8271);
+      paintRibbon(ctx, samples, color, stroke.size * 1.05, opacity * 0.67, 0.5, 0.36, 8271);
       speckle(ctx, samples, stroke, opacity * 0.48, 1, 0.65);
       break;
     case 'airbrush':
       airbrush(ctx, samples, stroke, opacity);
       break;
     case 'glitter':
-      paintRibbon(ctx, samples, stroke.color, stroke.size * 0.45, opacity * 0.35, 0.25);
+      paintRibbon(ctx, samples, color, stroke.size * 0.45, opacity * 0.35, 0.25);
       sparkles(ctx, samples, stroke, opacity);
       break;
     case 'ink':
     default:
-      paintRibbon(ctx, samples, stroke.color, stroke.size, opacity, 0.92);
+      paintRibbon(ctx, samples, color, stroke.size, opacity, 0.92);
   }
   ctx.restore();
 }

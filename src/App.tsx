@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ArrowUpRight, Check, ChevronRight, Copy, Download, Eraser, Eye,
-  EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, RotateCcw, Sparkles, Trash2, UsersRound, X,
+  ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Copy, Download, Eraser, Eye,
+  EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, Palette, Pipette, RotateCcw, Sparkles, Trash2, UsersRound, X,
 } from 'lucide-react';
 import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
 import { brushChoices, paintStroke } from './brushes';
+import { getHexChannels, setHexChannel } from './colorPaint';
 import { GuideArt, templates } from './templates';
-import type { BrushStyle, CanvasMode, Stroke, TemplateId } from './types';
+import type { BlendMode, BrushStyle, CanvasMode, PaintGradient, Stroke, TemplateId } from './types';
 import { useRoom } from './useRoom';
 
 type Theme = 'rose' | 'sage';
@@ -64,7 +65,9 @@ function Avatar({ name, alt = false }: { name: string; alt?: boolean }) {
   return <span className={`avatar ${alt ? 'avatar-alt' : ''}`} title={name}>{name.trim().slice(0, 1).toUpperCase() || '?'}</span>;
 }
 
-function BrushPreview({ brush, color }: { brush: BrushStyle; color: string }) {
+function BrushPreview({ brush, color, gradient, blend }: {
+  brush: BrushStyle; color: string; gradient?: PaintGradient; blend: BlendMode;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const ctx = ref.current?.getContext('2d');
@@ -73,7 +76,7 @@ function BrushPreview({ brush, color }: { brush: BrushStyle; color: string }) {
     ctx.setTransform(2, 0, 0, 2, 0, 0);
     const stroke: Stroke = {
       id: `sample-${brush}`, by: 'preview', tool: 'pen', brush, color,
-      size: brush === 'airbrush' ? 11 : 8, opacity: 1,
+      size: brush === 'airbrush' ? 11 : 8, opacity: 1, gradient, blend,
       points: [
         { x: 7, y: 24, p: 0.35 }, { x: 21, y: 20, p: 0.55 },
         { x: 35, y: 12, p: 0.95 }, { x: 52, y: 13, p: 0.9 },
@@ -82,7 +85,7 @@ function BrushPreview({ brush, color }: { brush: BrushStyle; color: string }) {
     };
     paintStroke(ctx, stroke);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-  }, [brush, color]);
+  }, [brush, color, gradient?.to, gradient?.angle, blend]);
   return <canvas ref={ref} className="brush-preview" width={180} height={64} aria-hidden="true" />;
 }
 
@@ -152,6 +155,11 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   const [brush, setBrush] = useState<BrushStyle>('ink');
   const [opacity, setOpacity] = useState(100);
   const [color, setColor] = useState(colors[0].value);
+  const [colorLabOpen, setColorLabOpen] = useState(false);
+  const [paintMode, setPaintMode] = useState<'solid' | 'gradient'>('solid');
+  const [secondColor, setSecondColor] = useState('#A5C9A8');
+  const [gradientAngle, setGradientAngle] = useState(0);
+  const [blendMode, setBlendMode] = useState<BlendMode>('normal');
   const [size, setSize] = useState(12);
   const [guideVisible, setGuideVisible] = useState(true);
   const [copyState, setCopyState] = useState(false);
@@ -166,6 +174,10 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
     if (visibleSelected.length !== selectedIds.length) setSelectedIds(visibleSelected);
   }, [selectedIds, visibleSelected]);
   const canDraw = !full && room.connection !== 'error';
+  const gradient = paintMode === 'gradient' ? { to: secondColor, angle: gradientAngle } : undefined;
+  const colorPreview = gradient
+    ? `linear-gradient(${90 + gradientAngle}deg, ${color}, ${secondColor})` : color;
+  const rgb = getHexChannels(color);
 
   function chooseTool(next: CanvasMode) {
     setTool(next);
@@ -232,6 +244,8 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                 mode={tool} selectedIds={visibleSelected} onSelectionChange={setSelectedIds}
                 onMoveSelection={room.moveSelection} onDeleteSelection={removeSelected}
                 brush={brush} opacity={opacity / 100} color={color} size={size} disabled={!canDraw}
+                gradientTo={gradient?.to ?? null} gradientAngle={gradientAngle} blend={blendMode}
+                onPickColor={(sampled) => { setColor(sampled); setTool('pen'); }}
                 onStart={room.begin} onPoints={room.points} onEnd={room.end} onCursor={room.sendCursor} />
               {room.cursors.filter((cursor) => cursor.by !== room.myId).map((cursor) => (
                 <div className="remote-cursor" key={cursor.by} style={{ left: `${cursor.x / 10}%`, top: `${cursor.y / 7}%` }}>
@@ -244,7 +258,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               {full && <div className="full-overlay"><UsersRound size={27} /><strong>This studio is for two.</strong><span>Both places are taken right now.</span></div>}
               {room.connection === 'error' && <div className="full-overlay"><strong>Connection lost</strong><span>Refresh to reconnect. Your local drawing is saved.</span></div>}
             </div>
-            <div className="canvas-footer"><span>{tool === 'lasso' ? 'Draw a loop, then drag the selected ink ♡' : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
+            <div className="canvas-footer"><span>{tool === 'lasso' ? 'Draw a loop, then drag the selected ink ♡' : tool === 'picker' ? 'Tap a color on the canvas to pick it ✿' : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
           </div>
 
           <div className="tools-bar" role="toolbar" aria-label="Drawing tools">
@@ -294,7 +308,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                     title={choice.description} aria-label={`${choice.name} brush: ${choice.description}`}
                     aria-pressed={brush === choice.id && tool === 'pen'}
                     onClick={() => { setBrush(choice.id); chooseTool('pen'); }}>
-                    <BrushPreview brush={choice.id} color={color} />
+                    <BrushPreview brush={choice.id} color={color} gradient={gradient} blend={blendMode} />
                     <span>{choice.name}</span>
                   </button>
                 ))}
@@ -305,7 +319,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               <div className="swatches" aria-label="Drawing colors">
                 {colors.map((option) => <button key={option.value} title={option.name} aria-label={option.name}
                   aria-pressed={color === option.value && tool === 'pen'}
-                  className={`swatch ${color === option.value && tool === 'pen' ? 'active' : ''}`}
+                  className={`swatch ${color.toLowerCase() === option.value.toLowerCase() && tool === 'pen' ? 'active' : ''}`}
                   style={{ backgroundColor: option.value }}
                   onClick={() => { setColor(option.value); chooseTool('pen'); }} />)}
                 <label className="custom-color" title="Choose your own ink color">
@@ -313,13 +327,71 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                   <span aria-hidden="true">+</span>
                 </label>
               </div>
-              <span className="palette-whisper">Every color feels like you ♡</span>
+              <button type="button" className={`palette-picker ${tool === 'picker' ? 'active' : ''}`}
+                title="Sample a color from your drawing" aria-label="Pick color from canvas"
+                aria-pressed={tool === 'picker'} onClick={() => chooseTool('picker')}>
+                <Pipette size={16} />
+              </button>
+              <button type="button" className={`color-lab-toggle ${colorLabOpen ? 'open' : ''}`}
+                aria-expanded={colorLabOpen} aria-controls="color-atelier"
+                onClick={() => setColorLabOpen((open) => !open)}>
+                <span className="color-lab-dot" style={{ background: colorPreview }} />
+                <Palette size={15} /><span>Mix & shade</span><ChevronDown size={14} />
+              </button>
             </div>
+            {colorLabOpen && <section id="color-atelier" className="color-atelier" aria-label="Color and shading controls">
+              <div className="color-atelier-heading"><div><span>THE COLOR ATELIER</span><strong>A little magic for your ink ✿</strong></div>
+                <span className="color-sample" aria-label="Current ink preview" style={{ background: colorPreview }} />
+              </div>
+              <div className="atelier-grid">
+                <div className="atelier-group">
+                  <span className="atelier-label">Paint</span>
+                  <div className="paint-modes" role="group" aria-label="Paint style">
+                    <button type="button" className={paintMode === 'solid' ? 'active' : ''} aria-pressed={paintMode === 'solid'} onClick={() => setPaintMode('solid')}>Solid</button>
+                    <button type="button" className={paintMode === 'gradient' ? 'active' : ''} aria-pressed={paintMode === 'gradient'} onClick={() => setPaintMode('gradient')}>Gradient</button>
+                  </div>
+                  <div className="atelier-color-fields">
+                    <label><span>{paintMode === 'solid' ? 'Ink' : 'From'}</span><input type="color" aria-label="Ink color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
+                    {paintMode === 'gradient' && <label><span>To</span><input type="color" aria-label="Gradient end color" value={secondColor} onChange={(event) => setSecondColor(event.target.value)} /></label>}
+                  </div>
+                  <div className="atelier-rgb" role="group" aria-label="RGB color sliders">
+                    {(['Red', 'Green', 'Blue'] as const).map((channel, index) => <label key={channel}>
+                      <span>{channel}</span><input type="range" aria-label={`${channel} channel`} min={0} max={255} step={1}
+                        value={rgb[index]} onChange={(event) => setColor(setHexChannel(color, index, Number(event.target.value)))} />
+                      <output>{rgb[index]}</output>
+                    </label>)}
+                  </div>
+                  {paintMode === 'gradient' && <>
+                    <label className="atelier-angle"><span>Direction <output>{gradientAngle}°</output></span>
+                      <input type="range" aria-label="Gradient direction" min={0} max={360} step={15}
+                        value={gradientAngle} onChange={(event) => setGradientAngle(Number(event.target.value))} /></label>
+                    <div className="atelier-presets" role="group" aria-label="Romantic gradient presets">
+                      <button type="button" onClick={() => { setColor('#F4A6BE'); setSecondColor('#A5C9A8'); }}>Blush + sage</button>
+                      <button type="button" onClick={() => { setColor('#F9BC82'); setSecondColor('#D88BAC'); }}>Peach + rose</button>
+                      <button type="button" onClick={() => { setColor('#A99DD8'); setSecondColor('#77AACD'); }}>Dreamy sky</button>
+                    </div>
+                  </>}
+                </div>
+                <div className="atelier-group">
+                  <span className="atelier-label">Layer colors</span>
+                  <div className="paint-modes blend-modes" role="group" aria-label="Brush blending mode">
+                    {(['normal', 'multiply', 'screen'] as const).map((mode) => <button key={mode} type="button"
+                      className={blendMode === mode ? 'active' : ''} aria-pressed={blendMode === mode}
+                      onClick={() => setBlendMode(mode)}>{mode === 'normal' ? 'Normal' : mode === 'multiply' ? 'Shade' : 'Glow'}</button>)}
+                  </div>
+                  <p className="atelier-hint">{blendMode === 'multiply'
+                    ? 'Shade: layer soft ink over your colors to deepen them.'
+                    : blendMode === 'screen' ? 'Glow: gently brighten ink where strokes overlap.'
+                    : 'Normal: paint with your original colors.'}</p>
+                </div>
+              </div>
+            </section>}
             </>}
           </div>
           <p className="studio-footer-tip">{tool === 'lasso'
             ? 'Lasso selects complete brush strokes. Move, duplicate or delete them together — your person sees each edit.'
-            : 'Pick a texture and draw with your mouse, finger, or stylus. Your person sees the same brush.'}</p>
+            : tool === 'picker' ? 'Tap on a finished mark to pick its visible color; then keep drawing.'
+            : 'Blend and gradient settings apply to new strokes and sync with your person.'}</p>
         </section>
 
         <aside className="studio-sidebar" aria-label="Your drawing date">

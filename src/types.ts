@@ -1,7 +1,10 @@
 export const BRUSH_IDS = ['ink', 'pencil', 'marker', 'watercolor', 'crayon', 'airbrush', 'glitter'] as const;
 export type BrushStyle = typeof BRUSH_IDS[number];
 export type Tool = 'pen' | 'eraser';
-export type CanvasMode = Tool | 'lasso';
+export type CanvasMode = Tool | 'lasso' | 'picker';
+export const BLEND_MODES = ['normal', 'multiply', 'screen'] as const;
+export type BlendMode = typeof BLEND_MODES[number];
+export type PaintGradient = { to: string; angle: number };
 export type TemplateId = 'heart' | 'flowers' | 'bunny' | 'blank';
 export type Point = { x: number; y: number; p?: number };
 export type Stroke = {
@@ -12,6 +15,8 @@ export type Stroke = {
   size: number;
   brush?: BrushStyle;
   opacity?: number;
+  gradient?: PaintGradient;
+  blend?: BlendMode;
   hidden?: boolean;
   lastEdit?: number;
   lastEditor?: string;

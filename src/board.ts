@@ -1,4 +1,4 @@
-import { BRUSH_IDS } from './types';
+import { BLEND_MODES, BRUSH_IDS } from './types';
 import type { BoardState, Point, Stroke, TemplateId } from './types';
 
 const ROOM_RE = /^[a-f0-9]{32}$/;
@@ -38,6 +38,14 @@ export function isStroke(value: unknown): value is Stroke {
     typeof s.size === 'number' && Number.isFinite(s.size) && s.size > 0 && s.size <= 80 &&
     (s.brush === undefined || BRUSH_IDS.some((brush) => brush === s.brush)) &&
     (s.opacity === undefined || (typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0.1 && s.opacity <= 1)) &&
+    (s.blend === undefined || BLEND_MODES.some((mode) => mode === s.blend)) &&
+    (s.gradient === undefined || (s.gradient !== null && typeof s.gradient === 'object' &&
+      typeof (s.gradient as Record<string, unknown>).to === 'string' &&
+      /^#[\da-fA-F]{6}$/.test((s.gradient as Record<string, string>).to) &&
+      typeof (s.gradient as Record<string, unknown>).angle === 'number' &&
+      Number.isFinite((s.gradient as Record<string, number>).angle) &&
+      (s.gradient as Record<string, number>).angle >= 0 &&
+      (s.gradient as Record<string, number>).angle <= 360)) &&
     (s.hidden === undefined || typeof s.hidden === 'boolean') &&
     (s.lastEdit === undefined || (typeof s.lastEdit === 'number' && Number.isSafeInteger(s.lastEdit) && s.lastEdit >= 0)) &&
     (s.lastEditor === undefined || (typeof s.lastEditor === 'string' && s.lastEditor.length < 128)) &&

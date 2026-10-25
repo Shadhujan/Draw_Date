@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { paintStroke } from './brushes';
+import { colorOverPaper } from './colorPaint';
 import { limitTranslation, selectionBounds, strokesInsideLasso } from './selection';
-import type { BrushStyle, CanvasMode, Point, Stroke } from './types';
+import type { BlendMode, BrushStyle, CanvasMode, Point, Stroke } from './types';
 
 const WORLD_W = 1000;
 const WORLD_H = 700;
@@ -26,6 +27,10 @@ type Props = {
   brush: BrushStyle;
   opacity: number;
   color: string;
+  gradientTo: string | null;
+  gradientAngle: number;
+  blend: BlendMode;
+  onPickColor: (hex: string) => void;
   size: number;
   disabled?: boolean;
   onStart: (stroke: Stroke) => void;
@@ -251,7 +256,18 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   function pointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
     if (props.disabled || current.current || pointerId.current !== null || !event.isPrimary ||
         (event.pointerType === 'mouse' && event.button !== 0)) return;
-    const initial = point(event, event.currentTarget.getBoundingClientRect());
+    const rect = event.currentTarget.getBoundingClientRect();
+    const initial = point(event, rect);
+    if (props.mode === 'picker') {
+      const surface = event.currentTarget;
+      const context = surface.getContext('2d');
+      if (!context) return;
+      const x = Math.max(0, Math.min(surface.width - 1, Math.floor((event.clientX - rect.left) / rect.width * surface.width)));
+      const y = Math.max(0, Math.min(surface.height - 1, Math.floor((event.clientY - rect.top) / rect.height * surface.height)));
+      try { props.onPickColor(colorOverPaper(context.getImageData(x, y, 1, 1).data)); }
+      catch { /* Sampling can be unavailable if the browser blocks pixel access. */ }
+      return;
+    }
     if (props.mode === 'lasso') {
       const region = selectionBounds(strokesRef.current, props.selectedIds);
       if (region && initial.x >= region.left - 7 && initial.x <= region.right + 7 &&
@@ -266,10 +282,13 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
       scheduleRender();
       return;
     }
+    if (props.mode !== 'pen' && props.mode !== 'eraser') return;
     const stroke: Stroke = {
       id: crypto.randomUUID(), by: props.myId, tool: props.mode,
       color: props.color, size: props.mode === 'eraser' ? Math.min(80, props.size * 2.3) : props.size,
       brush: props.brush, opacity: props.mode === 'eraser' ? 1 : props.opacity,
+      ...(props.mode === 'pen' && props.gradientTo ? { gradient: { to: props.gradientTo, angle: props.gradientAngle } } : {}),
+      ...(props.mode === 'pen' && props.blend !== 'normal' ? { blend: props.blend } : {}),
       points: [initial],
     };
     current.current = stroke;
@@ -380,7 +399,8 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
     <canvas
       ref={canvas}
       className="drawing-canvas"
-      aria-label={props.mode === 'lasso' ? 'Draw a loop to select strokes, then drag to move them' : 'Draw with your pointer, touch or pen'}
+      aria-label={props.mode === 'lasso' ? 'Draw a loop to select strokes, then drag to move them' :
+        props.mode === 'picker' ? 'Tap a painted area to sample its color' : 'Draw with your pointer, touch or pen'}
       tabIndex={props.mode === 'lasso' ? 0 : -1}
       onKeyDown={(event) => {
         if (props.mode !== 'lasso') return;
