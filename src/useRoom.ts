@@ -31,6 +31,12 @@ export function useRoom(roomId: string, displayName: string) {
   const [board, setBoard] = useState<BoardState>(() => loadBoard(roomId));
   const boardRef = useRef(board);
   const [connection, setConnection] = useState<Connection>(realtimeConfigured ? 'connecting' : 'solo');
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const retryConnection = useCallback(() => {
+    if (!realtimeConfigured) return;
+    setConnection('connecting');
+    setConnectionAttempt((attempt) => attempt + 1);
+  }, []);
   const [members, setMembers] = useState<Partner[]>([]);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
@@ -95,7 +101,8 @@ export function useRoom(roomId: string, displayName: string) {
           case 'state-request':
             network.current?.send({ kind: 'state', from: myId, to: message.from, board: boardRef.current });
             break;
-          case 'state': {
+          case 'state':
+          case 'state-sync': {
             if (message.to !== myId) break;
             const incoming = sanitizeBoard(message.board);
             if (!incoming) break;
@@ -122,6 +129,12 @@ export function useRoom(roomId: string, displayName: string) {
                 strokes: [...merged, ...unshared].slice(-300),
               };
             });
+            // Respond once to a reconnecting peer with the merged snapshot,
+            // so strokes made offline reach both devices after reconnection.
+            // state-sync is an acknowledgement and is never echoed again.
+            if (message.kind === 'state') {
+              network.current?.send({ kind: 'state-sync', from: myId, to: message.from, board: boardRef.current });
+            }
             break;
           }
           case 'stroke-start':
@@ -218,7 +231,7 @@ export function useRoom(roomId: string, displayName: string) {
     };
   // Intentional: this subscription is scoped to the room and participant identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, myId, updateBoard]);
+  }, [roomId, myId, updateBoard, connectionAttempt]);
 
   useEffect(() => {
     if (!reactions.length) return;
@@ -322,7 +335,7 @@ export function useRoom(roomId: string, displayName: string) {
   }, [send, myId, displayName]);
 
   return {
-    board, connection, members, cursors, reactions, myId,
+    board, connection, retryConnection, members, cursors, reactions, myId,
     remoteDrafts: remoteDrafts.current, draftVersion,
     begin, points, end, addFill, setLessonStep, undo, canUndo: undoDepth > 0 || board.strokes.some((stroke) => stroke.by === myId && !stroke.hidden),
     moveSelection, deleteSelection, duplicateSelection,

@@ -568,7 +568,8 @@ a { color: inherit; }
 }
 
 /* Patch 0007: quiet guided steps and a single-tap color-fill tool. */
-.guide-layer[data-guided] { z-index: 2; opacity: .73; }
+/* Guides sit behind real ink, so the selected color is never covered. */
+.guide-layer[data-guided] { z-index: 0; opacity: .66; }
 .guide-layer[data-guided] g[data-guide-step].upcoming { opacity: .14; }
 .guide-layer[data-guided] g[data-guide-step].done { opacity: .29; }
 .guide-layer[data-guided] g[data-guide-step].current { opacity: .96; }
@@ -623,4 +624,29 @@ a { color: inherit; }
   .lesson-step-line strong { font-size: 11px; }
   .lesson-step-copy p { font-size: 9px; }
   .lesson-coverage { font-size: 8px; }
+}
+
+/* Core drawing repair: compact status and unmistakable active ink. */
+.paper-header-actions { display: inline-flex; align-items: center; gap: 10px; }
+.drawing-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 10px; font-weight: 750; color: var(--muted); }
+.drawing-status i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #e3b777; }
+.drawing-status.is-live i { background: #7fb88b; }
+.current-ink { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-dark); font-size: 10px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.current-ink-dot { display: inline-block; width: 17px; height: 17px; border: 2px solid white; border-radius: 7px; box-shadow: 0 0 0 1px var(--hairline); }
+.offline-notice { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 13px; margin-top: 10px; border-radius: 12px; background: #fff1dc; color: #805e3d; font-size: 11px; line-height: 1.45; }
+.offline-notice button { flex: 0 0 auto; border: 0; border-radius: 9px; padding: 8px 12px; color: #755036; background: #ffe1b0; font: inherit; font-weight: 800; cursor: pointer; }
+.offline-notice button:hover { background: #ffd596; }
+.offline-notice button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.lesson-stepper { margin-top: 0; margin-bottom: 10px; }
+@media (max-width: 640px) {
+  .paper-header-actions { gap: 7px; }
+  .drawing-status { font-size: 9px; }
+  .current-ink { order: -1; }
+  .offline-notice { flex-wrap: wrap; }
+  .offline-notice button { margin-left: auto; }
+}
+@media (max-width: 370px) {
+  .drawing-status { font-size: 0; gap: 0; }
+  .drawing-status i { width: 9px; height: 9px; }
+  .current-ink { font-size: 9px; }
 }

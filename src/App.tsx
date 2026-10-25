@@ -180,7 +180,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   useEffect(() => {
     if (visibleSelected.length !== selectedIds.length) setSelectedIds(visibleSelected);
   }, [selectedIds, visibleSelected]);
-  const canDraw = !full && room.connection !== 'error' && room.connection !== 'expired';
+  // Connectivity should never stop a drawing date. Failed sync means local-only
+  // editing, clearly labelled below; full/expired invitations still stay closed.
+  const canDraw = !full && room.connection !== 'expired';
   const gradient = paintMode === 'gradient' ? { to: secondColor, angle: gradientAngle } : undefined;
   const colorPreview = gradient
     ? `linear-gradient(${90 + gradientAngle}deg, ${color}, ${secondColor})` : color;
@@ -238,6 +240,15 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
     if (next !== 'lasso') setSelectedIds([]);
   }
 
+  function chooseInk(next: string) {
+    setColor(next);
+    // Selecting a swatch means a single ink color, not an old gradient.
+    setPaintMode('solid');
+    // Keep painting tools active, but escape erasing, picking or selecting so
+    // the next pointer stroke actually draws with the chosen color.
+    if (tool === 'eraser' || tool === 'picker' || tool === 'lasso') chooseTool('pen');
+  }
+
   function removeSelected() {
     if (!canDraw || !visibleSelected.length) return;
     room.deleteSelection(visibleSelected);
@@ -287,10 +298,33 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
           <div className="paper-frame">
             <div className="paper-header">
               <div className="paper-header-title"><span className="paper-flower">✿</span><span>OUR CANVAS</span></div>
-              <button className={`guide-chip ${guideVisible ? 'active' : ''}`} aria-pressed={guideVisible} onClick={() => setGuideVisible((value) => !value)}>
-                {guideVisible ? <Eye size={14} /> : <EyeOff size={14} />} <span>{guideVisible ? 'Hints on' : 'Hints off'}</span>
-              </button>
+              <div className="paper-header-actions">
+                <span className={`drawing-status ${room.connection === 'connected' ? 'is-live' : ''}`}
+                  role="status" title={room.connection === 'connected' ? 'Connected to your private room' : 'Drawings stay on this device until connected'}>
+                  <i aria-hidden="true" />
+                  {room.connection === 'connected' ? 'Live room' : room.connection === 'connecting' ? 'Connecting' : room.connection === 'solo' ? 'On this device' : 'Offline'}
+                </span>
+                <button className={`guide-chip ${guideVisible ? 'active' : ''}`} aria-pressed={guideVisible} onClick={() => setGuideVisible((value) => !value)}>
+                  {guideVisible ? <Eye size={14} /> : <EyeOff size={14} />} <span>{guideVisible ? 'Hints on' : 'Hints off'}</span>
+                </button>
+              </div>
             </div>
+            {guideVisible && currentLesson && <div className="lesson-stepper" aria-label="Guided drawing steps">
+              <button className="lesson-nav" type="button" title="Previous drawing step"
+                aria-label="Previous drawing step" disabled={step <= 0 || !canDraw}
+                onClick={() => room.setLessonStep(step - 1)}><ChevronLeft size={18} /></button>
+              <div className="lesson-step-copy">
+                <div className="lesson-step-line"><span className="lesson-counter">STEP {step + 1} / {guided.length}</span><strong>{currentLesson.title}</strong><span className="lesson-coverage">{traceProgress}% traced</span></div>
+                <p>{currentLesson.hint}</p>
+                <div className="lesson-track" role="progressbar" aria-label="Reference-line tracing coverage"
+                  aria-valuemin={0} aria-valuemax={100} aria-valuenow={traceProgress}>
+                  <span style={{ width: `${traceProgress}%` }} />
+                </div>
+              </div>
+              <button className="lesson-nav next" type="button" title="Next drawing step"
+                aria-label="Next drawing step" disabled={step >= guided.length - 1 || !canDraw}
+                onClick={() => room.setLessonStep(step + 1)}><ChevronRight size={18} /></button>
+            </div>}
             <div className={`canvas-shell ${!canDraw ? 'canvas-locked' : ''}`}>
               {guideVisible && <GuideArt template={room.board.template} className="guide-layer" step={step} />}
               <DrawingCanvas key={room.board.revision} ref={canvas} strokes={room.board.strokes}
@@ -310,23 +344,11 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                 <span key={reaction.id} className="floating-reaction" style={{ right: `${24 + i * 16}%` }}><b>{reaction.value}</b><small>{reaction.name}</small></span>
               ))}
               {full && <div className="full-overlay"><UsersRound size={27} /><strong>This studio is for two.</strong><span>Both places are taken right now.</span></div>}
-              {(room.connection === 'error' || room.connection === 'expired') && <div className="full-overlay"><strong>{room.connection === 'expired' ? 'This invitation has expired' : 'Connection unavailable'}</strong><span>{room.connection === 'expired' ? 'Start a new drawing date from the home screen.' : 'Check your Supabase configuration and connection. Your local drawing is saved.'}</span></div>}
+              {room.connection === 'expired' && <div className="full-overlay"><strong>This invitation has expired</strong><span>Start a new drawing date from the home screen.</span></div>}
             </div>
-            {guideVisible && currentLesson && <div className="lesson-stepper" aria-label="Guided drawing steps">
-              <button className="lesson-nav" type="button" title="Previous drawing step"
-                aria-label="Previous drawing step" disabled={step <= 0 || !canDraw}
-                onClick={() => room.setLessonStep(step - 1)}><ChevronLeft size={18} /></button>
-              <div className="lesson-step-copy">
-                <div className="lesson-step-line"><span className="lesson-counter">STEP {step + 1} / {guided.length}</span><strong>{currentLesson.title}</strong><span className="lesson-coverage">{traceProgress}% traced</span></div>
-                <p>{currentLesson.hint}</p>
-                <div className="lesson-track" role="progressbar" aria-label="Reference-line tracing coverage"
-                  aria-valuemin={0} aria-valuemax={100} aria-valuenow={traceProgress}>
-                  <span style={{ width: `${traceProgress}%` }} />
-                </div>
-              </div>
-              <button className="lesson-nav next" type="button" title="Next drawing step"
-                aria-label="Next drawing step" disabled={step >= guided.length - 1 || !canDraw}
-                onClick={() => room.setLessonStep(step + 1)}><ChevronRight size={18} /></button>
+            {room.connection === 'error' && <div className="offline-notice" role="status">
+              <span>Connection lost. You can still draw here, but your partner will not see new strokes until you reconnect.</span>
+              <button type="button" onClick={room.retryConnection}>Reconnect</button>
             </div>}
             <div className="canvas-footer"><span>{tool === 'lasso-paint' ? 'Trace a shape to paint it instantly ♡' : tool === 'lasso' ? 'Circle ink to move or duplicate it ♡' : tool === 'picker' ? 'Tap a color on the canvas to pick it ✿' : tool === 'fill' ? fillMessage : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
           </div>
@@ -390,15 +412,19 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               <span className="palette-label">COLORS</span>
               <div className="swatches" aria-label="Drawing colors">
                 {colors.map((option) => <button key={option.value} title={option.name} aria-label={option.name}
-                  aria-pressed={color === option.value && tool === 'pen'}
-                  className={`swatch ${color.toLowerCase() === option.value.toLowerCase() && tool === 'pen' ? 'active' : ''}`}
+                  aria-pressed={color.toLowerCase() === option.value.toLowerCase() && paintMode === 'solid'}
+                  className={`swatch ${color.toLowerCase() === option.value.toLowerCase() && paintMode === 'solid' ? 'active' : ''}`}
                   style={{ backgroundColor: option.value }}
-                  onClick={() => { setColor(option.value); if (tool === 'eraser' || tool === 'picker') chooseTool('pen'); }} />)}
+                  onClick={() => chooseInk(option.value)} />)}
                 <label className="custom-color" title="Choose your own ink color">
-                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => { setColor(event.target.value); if (tool === 'eraser' || tool === 'picker') chooseTool('pen'); }} />
+                  <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => chooseInk(event.target.value)} />
                   <span aria-hidden="true">+</span>
                 </label>
               </div>
+              <output className="current-ink" aria-label="Current drawing color" aria-live="polite">
+                <span className="current-ink-dot" style={{ background: colorPreview }} aria-hidden="true" />
+                {paintMode === 'gradient' ? 'Gradient' : color.toUpperCase()}
+              </output>
               <button type="button" className={`palette-picker ${tool === 'picker' ? 'active' : ''}`}
                 title="Sample a color from your drawing" aria-label="Pick color from canvas"
                 aria-pressed={tool === 'picker'} onClick={() => chooseTool('picker')}>
@@ -491,11 +517,11 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               </div>
             </div>
             <p className="people-message" role="status">{room.connection === 'solo'
-              ? 'Solo preview. Connect Supabase to draw together across devices.'
-              : room.connection === 'connecting' ? 'Connecting your studio...'
+              ? 'Drawing is saved here. Connect Supabase to draw together.'
+              : room.connection === 'connecting' ? 'Connecting your studio. You can draw while it connects.'
               : room.connection === 'full' ? 'This room already has two artists.'
               : room.connection === 'expired' ? 'This invitation has expired. Start a fresh drawing date.'
-              : room.connection === 'error' ? 'We lost the connection. Please retry.'
+              : room.connection === 'error' ? 'Offline: drawing works here, but live sharing is paused.'
               : onlinePartner ? 'Together at last. Let the doodling begin ♡' : 'Share the room link so they can join you.'}</p>
             <button className="secondary-btn fullwidth" onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Copied!' : 'Copy room link'}</button>
           </section>

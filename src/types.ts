@@ -49,6 +49,7 @@ export type SelectionEdit = (
 export type BoardMessage =
   | { kind: 'state-request'; from: string }
   | { kind: 'state'; from: string; to: string; board: BoardState }
+  | { kind: 'state-sync'; from: string; to: string; board: BoardState }
   | { kind: 'stroke-start'; from: string; stroke: Stroke }
   | { kind: 'stroke-points'; from: string; id: string; points: Point[] }
   | { kind: 'stroke-end'; from: string; id: string }
