@@ -7,12 +7,41 @@ const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() as 
 export const realtimeConfigured = Boolean(url && publishableKey &&
   !url.includes('YOUR_PROJECT') && !publishableKey.includes('YOUR_KEY'));
 
-// Separate client storage key avoids a future auth collision with Lovebug,
-// even if both apps are eventually served from one origin.
+// Each open tab represents one participant, including when two people try the
+// game from separate tabs in the same browser profile. Browser-wide localStorage
+// previously made both tabs the SAME Supabase user (and therefore both host).
+const TAB_AUTH_KEY = 'draw-date-auth-tab-v2';
+const LEGACY_AUTH_KEY = 'draw-date-auth-v1';
+const fallbackTokens = new Map<string, string>();
+const fallbackStorage = {
+  getItem: (key: string) => fallbackTokens.get(key) ?? null,
+  setItem: (key: string, value: string) => { fallbackTokens.set(key, value); },
+  removeItem: (key: string) => { fallbackTokens.delete(key); },
+};
+
+function artistSessionStorage() {
+  try {
+    // Transfer the existing identity to the FIRST refreshed tab instead of
+    // breaking already-created rooms. A second tab gets its own anonymous user.
+    if (!sessionStorage.getItem(TAB_AUTH_KEY)) {
+      const oldSession = localStorage.getItem(LEGACY_AUTH_KEY);
+      if (oldSession) {
+        sessionStorage.setItem(TAB_AUTH_KEY, oldSession);
+        localStorage.removeItem(LEGACY_AUTH_KEY);
+      }
+    }
+    return sessionStorage;
+  } catch {
+    // Never fall back to shared localStorage, even in storage-restricted browsers.
+    return fallbackStorage;
+  }
+}
+
 const client = realtimeConfigured
   ? createClient(url!, publishableKey!, {
       auth: {
-        storageKey: 'draw-date-auth-v1',
+        storageKey: TAB_AUTH_KEY,
+        storage: artistSessionStorage(),
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,

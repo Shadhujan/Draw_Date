@@ -650,3 +650,19 @@ a { color: inherit; }
   .drawing-status i { width: 9px; height: 9px; }
   .current-ink { font-size: 9px; }
 }
+
+/* Room-lifecycle actions: small, explicit, and comfortable on mobile. */
+.studio-header-actions { display: flex; align-items: center; gap: 9px; }
+.welcome-new-room { display: inline-flex; align-items: center; align-self: start; gap: 7px; border: 0; background: transparent; color: var(--accent-dark); padding: 6px 1px; font-size: 12px; font-weight: 750; }
+.welcome-new-room:hover { text-decoration: underline; }
+.welcome-new-room:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 680px) {
+  .new-room-button { width: 38px; min-width: 38px; padding: 0; }
+  .new-room-button span { display: none; }
+  .paper-header-actions { gap: 5px; }
+  .paper-header-actions .guide-chip { padding: 6px 8px; }
+}
+@media (max-width: 370px) {
+  .paper-header-actions .guide-chip { padding: 6px; }
+  .paper-header-actions .guide-chip svg { width: 13px; }
+}

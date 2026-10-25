@@ -17,7 +17,8 @@ export function createRoomId(): string {
 }
 
 export function emptyBoard(): BoardState {
-  return { template: 'heart', strokes: [], revision: 0, lessonStep: 0 };
+  // Creating a room starts with empty paper. Guided art is chosen explicitly.
+  return { template: 'blank', strokes: [], revision: 0, lessonStep: 0 };
 }
 
 export function isPoint(value: unknown): value is Point {

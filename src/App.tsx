@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eraser, Eye,
+  ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eraser, Eye, Plus,
   EyeOff, Heart, Lasso, Leaf, Link2, Paintbrush, PaintBucket, Palette, Pipette, RotateCcw, Sparkles, Trash2, UsersRound, X,
 } from 'lucide-react';
 import { HeroStage } from './hero/HeroStage';
@@ -100,16 +100,20 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
   onStart: (name: string, id: string) => void;
 }) {
   const [name, setName] = useState(() => {
-    try { return localStorage.getItem('doodle-date-name') || ''; }
+    // A nickname is private to THIS tab and THIS room. An invitation in a new
+    // tab must never inherit the creator's browser-wide remembered name.
+    if (!room || !isRoomId(room)) return '';
+    try { return sessionStorage.getItem(`draw-date-name:${room}`) ?? ''; }
     catch { return ''; }
   });
   const [error, setError] = useState('');
 
-  function enter() {
+  function enter(newRoom = false) {
     const cleaned = name.trim().replace(/\s+/g, ' ').slice(0, 24);
     if (!cleaned) { setError('Add a little nickname before we begin.'); return; }
-    try { localStorage.setItem('doodle-date-name', cleaned); } catch { /* Nickname saving is optional. */ }
-    onStart(cleaned, room && isRoomId(room) ? room : createRoomId());
+    const id = !newRoom && room && isRoomId(room) ? room : createRoomId();
+    try { sessionStorage.setItem(`draw-date-name:${id}`, cleaned); } catch { /* Optional. */ }
+    onStart(cleaned, id);
   }
 
   return (
@@ -127,14 +131,17 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
           <p>A cozy little art studio for you and your favorite person. Make a mess, make a memory, make something yours.</p>
           <div className="welcome-form">
             <label htmlFor="name">Your little nickname</label>
-            <input id="name" autoComplete="nickname" maxLength={24} value={name}
+            <input id="name" autoComplete="off" maxLength={24} value={name}
               placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }}
               onKeyDown={(event) => { if (event.key === 'Enter') enter(); }} />
             {error && <span className="form-error" role="alert">{error}</span>}
-            <button className="primary-btn" onClick={enter}>
+            <button className="primary-btn" onClick={() => enter()}>
               {room ? 'Join the drawing date' : 'Start drawing together'}
               <span className="button-icon"><ArrowUpRight size={19} /></span>
             </button>
+            {room && <button type="button" className="welcome-new-room" onClick={() => enter(true)}>
+              <Plus size={14} /> Start a completely new room
+            </button>}
             <span className="form-note">No account form needed. Your room link is just for the two of you.</span>
           </div>
           <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The sweetest things are made together.</div>
@@ -146,12 +153,13 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
   );
 }
 
-function Studio({ roomId, name, theme, onThemeChange, onExit }: {
+function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
   roomId: string;
   name: string;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onExit: () => void;
+  onNewRoom: () => void;
 }) {
   const room = useRoom(roomId, name);
   const [tool, setTool] = useState<CanvasMode>('pen');
@@ -257,6 +265,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   }
 
   async function copyInvite() {
+    // Wait for Supabase to assign the host identity before exposing a link.
+    // Otherwise a faster guest could accidentally become the room creator.
+    if (!room.seat) return;
     try {
       await navigator.clipboard.writeText(roomUrl(roomId));
       setCopyState(true);
@@ -267,10 +278,17 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
   }
 
   function reset(template: TemplateId) {
+    if (!canDraw) return;
     if (template === room.board.template && room.board.strokes.length === 0 && (room.board.lessonStep ?? 0) === 0) return;
-    if (room.board.strokes.length && !window.confirm('Start a fresh page for both of you? Save this one first if you want to keep it.')) return;
+    if (room.board.strokes.length && !window.confirm('Clear this drawing for both of you? Save it first if you want to keep it.')) return;
     setSelectedIds([]);
     room.changeTemplate(template);
+  }
+
+  function startFreshRoom() {
+    if (room.board.strokes.some((stroke) => !stroke.hidden) &&
+      !window.confirm('Start a new room? This drawing stays with its original link. Copy that link if you want to return.')) return;
+    onNewRoom();
   }
 
   return (
@@ -279,6 +297,10 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
         <div className="studio-brand"><Emblem /><div><strong>draw date</strong><span>your little art studio</span></div></div>
         <div className="studio-header-actions">
           <ThemeSwitch theme={theme} onChange={onThemeChange} />
+          <button type="button" className="leave-button new-room-button" onClick={startFreshRoom}
+            title="Start a fresh private room" aria-label="Start a new drawing room">
+            <Plus size={17} /><span>New room</span>
+          </button>
           <button className="leave-button" aria-label="Leave drawing studio" onClick={onExit}><ArrowLeft size={17} /><span>Leave</span></button>
         </div>
       </header>
@@ -291,7 +313,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               <h1>Today's little <em>masterpiece.</em></h1>
               <p>One canvas. Two hearts. No perfect lines needed.</p>
             </div>
-            <button className="invite-btn" onClick={copyInvite} aria-label={copyState ? 'Room link copied' : 'Copy invitation link'}>
+            <button className="invite-btn" disabled={!room.seat} onClick={copyInvite} aria-label={copyState ? 'Room link copied' : 'Copy invitation link'}>
               <Link2 size={16} /> <span>{copyState ? 'Link copied' : 'Invite your person'}</span>{copyState ? <Check size={15} /> : <ArrowUpRight size={15} />}
             </button>
           </div>
@@ -305,6 +327,9 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
                   <i aria-hidden="true" />
                   {room.connection === 'connected' ? 'Live room' : room.connection === 'connecting' ? 'Connecting' : room.connection === 'solo' ? 'On this device' : 'Offline'}
                 </span>
+                <button type="button" className="guide-chip" title="Clear drawing for both of you"
+                  aria-label="Reset canvas for both people" disabled={!canDraw}
+                  onClick={() => reset(room.board.template)}><RotateCcw size={14} /><span>Reset</span></button>
                 <button className={`guide-chip ${guideVisible ? 'active' : ''}`} aria-pressed={guideVisible} onClick={() => setGuideVisible((value) => !value)}>
                   {guideVisible ? <Eye size={14} /> : <EyeOff size={14} />} <span>{guideVisible ? 'Hints on' : 'Hints off'}</span>
                 </button>
@@ -526,7 +551,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit }: {
               : room.connection === 'expired' ? 'This invitation has expired. Start a fresh drawing date.'
               : room.connection === 'error' ? 'Offline: drawing works here, but live sharing is paused.'
               : onlinePartner ? 'Together at last. Let the doodling begin ♡' : 'Share the room link so they can join you.'}</p>
-            <button className="secondary-btn fullwidth" onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Copied!' : 'Copy room link'}</button>
+            <button className="secondary-btn fullwidth" disabled={!room.seat} onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Copied!' : 'Copy room link'}</button>
           </section>
 
           <section className="side-card love-card">
@@ -566,9 +591,15 @@ export default function App() {
     setRoomId(null);
   }
 
+  function startFreshRoom() {
+    const nextId = createRoomId();
+    window.history.replaceState(null, '', roomUrl(nextId));
+    setRoomId(nextId);
+  }
+
   return (
     <div className="app-theme" data-theme={theme}>
-      {roomId ? <Studio key={roomId} roomId={roomId} name={name} theme={theme} onThemeChange={changeTheme} onExit={leave} />
+      {roomId ? <Studio key={roomId} roomId={roomId} name={name} theme={theme} onThemeChange={changeTheme} onExit={leave} onNewRoom={startFreshRoom} />
         : <Welcome room={isRoomId(initialRoom) ? initialRoom : null} theme={theme} onThemeChange={changeTheme} onStart={start} />}
     </div>
   );
