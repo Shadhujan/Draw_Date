@@ -1,31 +1,11 @@
-import type { Stroke, TemplateId } from './types';
+import { TEMPLATE_IDS, type Stroke, type TemplateId } from './types';
+import { drawingLessons } from './drawingLessons';
 
 export type LessonStep = { title: string; hint: string };
 
-export const lessonSteps: Record<TemplateId, LessonStep[]> = {
-  heart: [
-    { title: 'A big heart', hint: 'Follow the outside edge from the top, all the way around.' },
-    { title: 'The little cheeks', hint: 'Give both sides a soft, happy curve.' },
-    { title: 'The tiny heart', hint: 'Trace the little heart in the middle.' },
-    { title: 'A happy smile', hint: 'Add a gentle smile under the little heart.' },
-    { title: 'Finishing sparkles', hint: 'A few sparkles make it feel extra special.' },
-  ],
-  flowers: [
-    { title: 'Plant the stems', hint: 'Start with two long, slightly wiggly stems.' },
-    { title: 'Grow the leaves', hint: 'Follow the leaf outlines on both sides.' },
-    { title: 'Draw the petals', hint: 'Trace the round flower and the pointed petals.' },
-    { title: 'Little details', hint: 'Add the center of the flower.' },
-    { title: 'The garden line', hint: 'Finish with a soft, curving ground line.' },
-  ],
-  bunny: [
-    { title: 'Floppy ears', hint: 'Trace two tall, playful bunny ears.' },
-    { title: 'Round little face', hint: 'Follow the soft oval around the cheeks.' },
-    { title: 'Sleepy eyes', hint: 'Add the eyes, nose and smile.' },
-    { title: 'Whiskers & blush', hint: 'Give your bunny its whiskers.' },
-    { title: 'A cozy hug', hint: 'Draw the body and a few floating hearts.' },
-  ],
-  blank: [],
-};
+export const lessonSteps = Object.fromEntries(TEMPLATE_IDS.map((id) => [
+  id, id === 'blank' ? [] : drawingLessons[id].steps.map(({ title, hint }) => ({ title, hint })),
+])) as Record<TemplateId, LessonStep[]>;
 
 export function lessonCount(template: TemplateId): number {
   return lessonSteps[template].length;

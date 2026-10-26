@@ -2,6 +2,22 @@
 
 All dates are Asia/Colombo. Changes are committed to `Dev` for owner review; this document does not imply a production release.
 
+## 27 October 2026 — A calmer drawing room and keepsake downloads
+
+**Baseline:** remote `Dev` at `36a84ff367091c657ae78267e3f402a6f431da35`, after the owner pushed the plush-teddy integration.
+
+**Problem:** invitations and presence were repeated in separate locations, the always-open brush shelf added phone scrolling, and PNG downloads had no preview or keepsake option.
+
+**Change:** placed a compact duo/presence strip and one invitation action above the canvas. Offline members are no longer presented as currently drawing together. Increased the phone canvas width, enlarged everyday tool and swatch hit areas, strengthened studio text contrast, and made the brush library expandable. The doodle chooser starts collapsed on phones and open on desktop. Existing brushes, gradients, shading, lasso, guides, reactions and undo remain available.
+
+Added one Save drawing action with a native modal preview: Drawing only or a cream-framed Keepsake. The latter has editable optional names and an optional local date, with pink/sage frame accents. The canvas freezes the same pigment snapshot previously used for PNG export, including visible hints. Framing adds space around those pixels without cropping or rescaling them. Downloads stay on the device. Escape/backdrop/close dismiss the preview; focus returns to Save drawing. Download errors have an inline retry path.
+
+**Validation:** TypeScript/Vite production build; whitespace check; local headless Chromium. Eleven widths (320, 360, 390, 520, 680, 768, 960, 961, 1024, 1150, 1440px) passed page overflow/control bounds checks in both themes. Guided phone layouts also passed responsive checks. Exercised brush selection, color, gradient/shading, lasso paint, undo, guide steps, local reload recovery and leave/return. Downloaded both PNG styles and compared every drawing RGB pixel between the plain export and the corresponding framed region: identical. Checked small/landscape save sheets, optional empty captions, Tamil/emoji names, local dates near midnight, frozen previews across resize, failed PNG preparation/retry, reduced motion, modal background inertness and focus restoration. No page exceptions in the completed checks. A React component/accessibility review was also applied.
+
+**Limits:** local browser verification does not establish physical-phone performance or real two-device Supabase admission, synchronization and reconnect behavior. The local checkout runs in device-only mode without configured Supabase credentials. Existing bundle-size advisory remains.
+
+**Delivery:** automatic approval review blocked the GitHub source upload, citing missing explicit authorization to publish through the connector. The tested change is therefore delivered as an incremental patch against the baseline above. No remote branch, database or production changes were made in this pass.
+
 ## 26 October 2026 — Connected plush bears in the studio
 
 **Baseline:** remote `Dev` at `258191adc4b062cb39adb7a197e4194ef64ede80`, including the owner's applied hero patches.
@@ -96,3 +112,15 @@ Visual QA caught and corrected an overly wrapped desktop headline and a sticky n
 **Push blocker:** the connected personal GitHub integration rejected both Git tree creation and file creation with HTTP 403 `Resource not accessible by integration`. A command-line push also failed because this workspace has no GitHub credentials. The change is committed locally only. Neither remote `Dev` nor `main` was modified by this pass; no deployment was created or promoted.
 
 **Limits:** no remote Dev preview and no real two-device Supabase admission/reconnect/synchronization test. Local solo checks and software WebGL do not establish mobile hardware performance or production multiplayer behavior.
+
+## 27 October 2026 — More drawing dates and a symmetrical bunny
+
+**Baseline:** remote `Dev` at `36a84ff367091c657ae78267e3f402a6f431da35`. This is a separate drawing-content patch; it can also be applied after the studio/keepsake patch.
+
+**Change:** added eight original vector lessons: Kitten cuddles, Teddy hug, Lovebirds, Berry sweet, Tea for two, Cupcake date, Butterfly wishes and Moonlit wishes. Together with Love note, Flower date and Bunny buddies, the catalog now has 11 guided drawings / 55 steps plus Freestyle. Centered the bunny on x=500 and mirrored its ears, head, face, whiskers, blush, body, paws and heart. Each lesson stores its geometry and instructions together, so its thumbnail, guide and step labels stay consistent. Thumbnails preserve proportions, and the expanded catalog has bounded scrolling.
+
+**Correctness:** one shared template-ID list now drives TypeScript and runtime validation. New IDs survive board sanitization, local persistence and the existing reset/state message guards. Existing IDs and drawing coordinates remain valid. Progress continues to mean tracing coverage, not a stroke-quality or accuracy grade.
+
+**Validation:** TypeScript/Vite build and whitespace check; local Chromium rendering and visual review of all 11 guides. Verified all 55 step groups, empty/exact tracing coverage, invalid-step rejection and template storage round trips. Every bunny step passed a geometric mirror check. Navigated through every lesson, checked eight widths in both themes, and exercised bunny tracing, undo, smart fill, PNG export and reload recovery with the selected guide and step. No page exceptions in completed checks. The patch also applied cleanly after the studio/keepsake patch; the combined build, mobile lesson picker and keepsake export passed. See `DRAWING_LESSONS.md` for compatibility and scope.
+
+**Limits/delivery:** real two-device sync and physical-phone performance remain unverified. Both participants need the updated client to recognize the new lesson IDs. Delivered as an incremental patch; the earlier automatic approval-review block on publishing source through GitHub remains in place. No remote branch or production changes were made.

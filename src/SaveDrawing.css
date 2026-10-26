@@ -1,0 +1,56 @@
+.save-dialog {
+  width: min(880px, calc(100% - 40px)); max-width: none; max-height: calc(100dvh - 40px);
+  margin: auto; padding: 0; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--accent-light); border-radius: 25px;
+  color: var(--ink); background: var(--surface); box-shadow: 0 24px 100px #4f374b33;
+}
+.save-dialog::backdrop { background: #43343b70; backdrop-filter: blur(5px); }
+.save-dialog-inner { padding: 24px; }
+.save-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.save-eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-dark); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.save-heading h2 { margin: 7px 0 0; font-size: clamp(23px, 3vw, 29px); line-height: 1.15; letter-spacing: -.055em; }
+.save-heading .icon-action { background: var(--page); }
+.save-body { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+.save-preview { display: flex; align-items: center; justify-content: center; min-width: 0; padding: 22px; border-radius: 17px; background: var(--page); }
+.save-preview canvas { display: block; width: 100%; height: auto; box-shadow: 0 8px 22px #76624e1c; }
+.save-options { display: flex; flex-direction: column; align-self: stretch; min-width: 0; gap: 24px; }
+.save-format { display: flex; gap: 4px; padding: 4px; border-radius: 13px; background: var(--surface-tint); }
+.save-format button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 9px 7px; border: 0; border-radius: 10px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 800; }
+.save-format button[aria-pressed='true'] { color: var(--accent-dark); background: var(--surface); box-shadow: 0 2px 8px var(--accent-shadow); }
+.save-format button:hover { color: var(--accent-dark); }
+.save-caption-fields { display: flex; flex-direction: column; gap: 17px; }
+.save-names { display: block; color: var(--ink); font-size: 12px; font-weight: 750; }
+.save-names > span { color: var(--muted); font-weight: 500; }
+.save-names input { display: block; width: 100%; min-height: 46px; margin-top: 9px; padding: 10px 12px; border: 1px solid var(--hairline); border-radius: 11px; background: var(--page); color: var(--ink); font-size: 16px; }
+.save-names input::placeholder { color: var(--muted); }
+.save-date { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-height: 44px; color: var(--muted); font-size: 11px; cursor: pointer; }
+.save-date input { width: 18px; height: 18px; margin: 0 3px 0 0; accent-color: var(--accent-dark); }
+.save-date > span { margin-left: auto; font-size: 10px; }
+.save-description { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.save-download-area { margin-top: auto; }
+.save-download { display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--accent-light); border-radius: 13px; background: var(--accent-dark); color: white; font-size: 12px; font-weight: 800; transition: transform .2s, box-shadow .2s; }
+.save-download:hover { transform: translateY(-1px); box-shadow: 0 5px 16px var(--accent-shadow); }
+.save-download:active { transform: scale(.98); }
+.save-confirmation { min-height: 28px; margin: 10px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; text-align: center; }
+.save-error { color: #9a455b; font-size: 12px; line-height: 1.5; }
+body:has(.save-dialog[open]) { overflow: hidden; }
+@media (max-width: 620px) {
+  .save-dialog { width: 100%; max-height: calc(100dvh - 12px); margin: auto 0 0; border-radius: 24px 24px 0 0; }
+  .save-dialog-inner { padding: 18px 18px max(18px, env(safe-area-inset-bottom)); }
+  .save-heading { margin-bottom: 16px; gap: 10px; }
+  .save-heading h2 { font-size: 25px; }
+  .save-body { grid-template-columns: minmax(0, 1fr); gap: 17px; }
+  .save-preview { padding: 14px; }
+  .save-preview canvas { width: auto; max-width: 100%; max-height: min(32dvh, 280px); }
+  .save-options { gap: 14px; }
+  .save-caption-fields { gap: 7px; }
+  .save-confirmation { min-height: 15px; }
+}
+@media (max-height: 600px) and (min-width: 621px) {
+  .save-dialog-inner { padding: 18px; }
+  .save-heading { margin-bottom: 14px; }
+  .save-body { gap: 18px; }
+  .save-preview { padding: 14px; }
+  .save-preview canvas { width: auto; max-width: 100%; max-height: 60dvh; }
+  .save-options { gap: 14px; }
+}

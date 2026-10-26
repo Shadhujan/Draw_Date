@@ -15,7 +15,7 @@ const CURSOR_MS = 220;
 const DRAW_MS = 85;
 
 export type CanvasHandle = {
-  save: (guide: SVGSVGElement | null) => void;
+  snapshot: (guide: SVGSVGElement | null) => Promise<HTMLCanvasElement | null>;
 };
 
 type Props = {
@@ -320,26 +320,26 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
   }, []);
 
   useImperativeHandle(externalRef, () => ({
-    async save(guide: SVGSVGElement | null) {
+    async snapshot(guide: SVGSVGElement | null) {
       // Render the same pigment snapshot used by the live canvas. This includes
       // in-progress local and remote strokes, unlike the old export that only
       // replayed committed events at a different resolution.
       latestRender.current();
       const artwork = artworkSnapshot.current;
-      if (!artwork || !artwork.width || !artwork.height) return;
+      if (!artwork || !artwork.width || !artwork.height) return null;
       // Freeze the exact live pigment pixels at the click. SVG decoding is
       // async; later strokes must not sneak into this downloaded snapshot.
       const frozen = document.createElement('canvas');
       frozen.width = artwork.width;
       frozen.height = artwork.height;
       const frozenCtx = frozen.getContext('2d');
-      if (!frozenCtx) return;
+      if (!frozenCtx) return null;
       frozenCtx.drawImage(artwork, 0, 0);
       const out = document.createElement('canvas');
       out.width = artwork.width;
       out.height = artwork.height;
       const ctx = out.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) return null;
       ctx.fillStyle = '#fffdfb';
       ctx.fillRect(0, 0, out.width, out.height);
       if (guide) {
@@ -347,10 +347,7 @@ export const DrawingCanvas = forwardRef<CanvasHandle, Props>(function DrawingCan
         catch { /* The drawing must still download if the guide cannot rasterize. */ }
       }
       ctx.drawImage(frozen, 0, 0);
-      const a = document.createElement('a');
-      a.href = out.toDataURL('image/png');
-      a.download = `our-doodle-${new Date().toISOString().slice(0, 10)}.png`;
-      a.click();
+      return out;
     },
   }), []);
 

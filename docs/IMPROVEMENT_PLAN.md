@@ -27,9 +27,9 @@ These are motion/art-direction references, not evidence about website budgets. H
 
 ## Latest pass status
 
-The owner applied the hero passes to `Dev` at `258191a`. The approved cream-teddy face now has a continuous seated lower body. A web asset replaces the procedural sphere bears in the miniature room; cream and caramel share one approximately 4 MB model download. The original fluffy art remains on room-link invitations and as fallback. See `PLUSH_BEAR_ASSET.md` for the source, runtime contract and limits.
+The owner pushed the plush-teddy integration to `Dev` at `36a84ff`. The drawing room now has a compact duo strip, expandable brush/doodle shelves, clearer text and more comfortable phone controls. Save drawing offers a frozen PNG preview and an optional cream-framed keepsake with names and a local date. The original hero and invitation artwork remain in place.
 
-This pass is prepared incrementally against that remote head. Confirm push status in the accompanying delivery before assuming remote `Dev` changed; never merge or promote production automatically. Keep the previously paused recurring task paused while repository write access is blocked.
+This pass is incremental against that remote head. Confirm push status in the accompanying delivery before assuming remote `Dev` changed; never merge or promote production automatically. Keep the previously paused recurring task paused while repository write access is blocked.
 
 ## Current verification priorities
 

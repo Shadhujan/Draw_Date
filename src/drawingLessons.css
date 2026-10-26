@@ -1,0 +1,16 @@
+/* Keep the expanded lesson shelf comfortable beside the drawing canvas. */
+.studio-sidebar .template-list {
+  max-height: 430px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-light) transparent;
+  padding: 3px;
+  scroll-padding-block: 6px;
+}
+.studio-sidebar .template-option { flex-shrink: 0; }
+.studio-sidebar .template-preview { flex-basis: 58px; height: 46px; }
+@media (max-width: 680px) {
+  .studio-sidebar .template-preview { flex-basis: 42px; height: 38px; }
+  .studio-sidebar .template-list { max-height: 380px; }
+}
