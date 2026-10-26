@@ -125,16 +125,20 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
       </header>
       <main className="welcome-main">
         <section className="welcome-copy">
-          <div className="eyebrow"><Sparkles size={15} /> FOR THE LITTLE MOMENTS TOGETHER</div>
-          <h1>Draw together.<br /><em>Stay a little closer.</em></h1>
+          <div className="eyebrow"><Sparkles size={15} /> a little time, just us</div>
+          <h1><span className="hero-title-line">Draw together.</span><em>Stay a little closer.
+            <svg className="hero-handdrawn" viewBox="0 0 450 20" aria-hidden="true">
+              <path d="M4 12C100 1 268 2 398 10M42 17C181 9 280 11 366 15M411 8C402-3 391 4 411 17C435 3 423-4 411 8" />
+            </svg>
+          </em></h1>
           <p>A cozy little art studio for you and your favorite person. Make a mess, make a memory, make something yours.</p>
-          <div className="welcome-form">
+          <form className="welcome-form" onSubmit={(event) => { event.preventDefault(); enter(); }} noValidate>
             <label htmlFor="name">Your little nickname</label>
-            <input id="name" autoComplete="off" maxLength={24} value={name}
-              placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }}
-              onKeyDown={(event) => { if (event.key === 'Enter') enter(); }} />
-            {error && <span className="form-error" role="alert">{error}</span>}
-            <button className="primary-btn" onClick={() => enter()}>
+            <input id="name" autoComplete="off" maxLength={24} value={name} required
+              aria-invalid={Boolean(error)} aria-describedby={error ? 'name-error' : undefined}
+              placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }} />
+            {error && <span id="name-error" className="form-error" role="alert">{error}</span>}
+            <button type="submit" className="primary-btn">
               {room ? 'Join the drawing date' : 'Start drawing together'}
               <span className="button-icon"><ArrowUpRight size={19} /></span>
             </button>
@@ -142,7 +146,7 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
               <Plus size={14} /> Start a completely new room
             </button>}
             <span className="form-note">No account form needed. Your room link is just for the two of you.</span>
-          </div>
+          </form>
           <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The sweetest things are made together.</div>
         </section>
         <HeroStage theme={theme} />

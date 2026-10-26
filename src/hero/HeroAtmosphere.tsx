@@ -2,46 +2,61 @@ import { useEffect, useRef } from 'react';
 
 type Theme = 'rose' | 'sage';
 
-/**
- * Genuine Three.js particles, not a video overlay. Loaded only on the welcome
- * screen, with a CSS-only fallback when WebGL or motion is unavailable.
- */
-export function HeroAtmosphere({ theme }: { theme: Theme }) {
+/** Optional, lazy-loaded Three.js scene. The HTML artwork always stands alone. */
+export function HeroAtmosphere({ theme, moving }: { theme: Theme; moving: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const host = canvas?.parentElement;
-    if (!canvas || !host || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
+    if (!canvas || !host || !moving) return;
     let disposed = false;
     let release = () => {};
 
     async function start() {
-      // The Three.js bundle is split from the main app and fetched only when needed.
-      const THREE = await import('three');
+      const [THREE, { RoomEnvironment }] = await Promise.all([
+        import('three'), import('three/addons/environments/RoomEnvironment.js'),
+      ]);
       if (disposed || !canvas || !host) return;
-
       let renderer: InstanceType<typeof THREE.WebGLRenderer>;
       try {
         renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
-      } catch {
-        // WebGL can be disabled by the browser or device; the static scene still works.
-        return;
-      }
+      } catch { return; }
 
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.4));
-      renderer.setClearColor(0x000000, 0);
       const scene = new THREE.Scene();
+      const resources: { dispose: () => void }[] = [];
+      const cleanups: (() => void)[] = [];
+      function own<T extends { dispose: () => void }>(resource: T): T {
+        resources.push(resource);
+        return resource;
+      }
+      // Register disposal before building the scene, including failed setup.
+      release = () => {
+        renderer.setAnimationLoop(null);
+        cleanups.forEach((cleanup) => cleanup());
+        scene.clear();
+        resources.forEach((resource) => resource.dispose());
+        renderer.dispose();
+        canvas.removeAttribute('data-ready');
+      };
+      const mobile = window.matchMedia('(max-width: 660px)').matches;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 1.5));
+      renderer.setClearColor(0x000000, 0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+      const roomLight = own(new RoomEnvironment());
+      const environmentGenerator = own(new THREE.PMREMGenerator(renderer));
+      const environment = own(environmentGenerator.fromScene(roomLight, 0.04));
+      scene.environment = environment.texture;
+      scene.environmentIntensity = 0.65;
       const camera = new THREE.OrthographicCamera(-3, 3, 3, -3, 0.1, 30);
       camera.position.z = 14;
-
-      scene.add(new THREE.AmbientLight(0xffffff, 2.1));
-      const sunlight = new THREE.PointLight(0xffe5d9, 55, 20);
+      scene.add(new THREE.HemisphereLight(0xfff9ed, 0xc58e9a, 2.5));
+      const sunlight = new THREE.PointLight(0xffe5c9, 48, 25);
       sunlight.position.set(-3, 5, 8);
       scene.add(sunlight);
-      const bounce = new THREE.PointLight(theme === 'sage' ? 0xb1deba : 0xffa8cc, 24, 20);
-      bounce.position.set(4, -3, 6);
+      const bounce = new THREE.PointLight(theme === 'sage' ? 0xb1deba : 0xffb6d0, 22, 20);
+      bounce.position.set(3, -1, 6);
       scene.add(bounce);
 
       const heartShape = new THREE.Shape();
@@ -50,100 +65,81 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
       heartShape.bezierCurveTo(-0.34, 0.72, -0.04, 0.53, 0, 0.35);
       heartShape.bezierCurveTo(0.05, 0.53, 0.38, 0.70, 0.48, 0.38);
       heartShape.bezierCurveTo(0.56, 0.10, 0.18, -0.20, 0, -0.35);
-      const heartGeometry = new THREE.ExtrudeGeometry(heartShape, {
-        depth: 0.11, bevelEnabled: true, bevelThickness: 0.055,
-        bevelSize: 0.047, bevelSegments: 3, steps: 1, curveSegments: 15,
-      });
+      const heartGeometry = own(new THREE.ExtrudeGeometry(heartShape, {
+        depth: 0.16, bevelEnabled: true, bevelThickness: 0.10,
+        bevelSize: 0.08, bevelSegments: 4, steps: 1, curveSegments: 18,
+      }));
       heartGeometry.center();
-
       const starShape = new THREE.Shape();
-      for (let i = 0; i < 10; i++) {
-        const a = (i * Math.PI / 5) - Math.PI / 2;
-        const radius = i % 2 ? 0.20 : 0.54;
-        const x = Math.cos(a) * radius;
-        const y = Math.sin(a) * radius;
-        if (i === 0) starShape.moveTo(x, y);
-        else starShape.lineTo(x, y);
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4;
+        const radius = i % 2 ? 0.11 : 0.44;
+        if (!i) starShape.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+        else starShape.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
       }
       starShape.closePath();
-      const starGeometry = new THREE.ExtrudeGeometry(starShape, {
-        depth: 0.08, bevelEnabled: true, bevelThickness: 0.035,
-        bevelSize: 0.035, bevelSegments: 2, steps: 1,
-      });
-      starGeometry.center();
+      const starGeometry = own(new THREE.ExtrudeGeometry(starShape, {
+        depth: 0.05, bevelEnabled: true, bevelThickness: 0.025,
+        bevelSize: 0.025, bevelSegments: 2, steps: 1,
+      }));
+      const heartMaterial = own(new THREE.MeshPhysicalMaterial({
+        color: theme === 'sage' ? 0x9aba98 : 0xee97b4,
+        roughness: 0.24, metalness: 0.04, clearcoat: 1, clearcoatRoughness: 0.12,
+      }));
+      const peachMaterial = own(new THREE.MeshPhysicalMaterial({
+        color: 0xf9c7ad, roughness: 0.3, clearcoat: 1,
+      }));
+      const starMaterial = own(new THREE.MeshStandardMaterial({
+        color: 0xffecc0, emissive: 0xffcc83, emissiveIntensity: 0.4, roughness: 0.3,
+      }));
 
-      const heartMat = new THREE.MeshPhysicalMaterial({
-        color: theme === 'sage' ? 0x9ebfa7 : 0xf3a6bd,
-        roughness: 0.28, metalness: 0.03, clearcoat: 1, clearcoatRoughness: 0.16,
-        transparent: true, opacity: 0.9, depthWrite: false,
-      });
-      const blushMat = new THREE.MeshPhysicalMaterial({
-        color: theme === 'sage' ? 0xf2d6a3 : 0xf8c8a0,
-        roughness: 0.35, clearcoat: 0.9, transparent: true, opacity: 0.87, depthWrite: false,
-      });
-      const pearlMat = new THREE.MeshPhysicalMaterial({
-        color: 0xfff9eb, roughness: 0.28, metalness: 0.03,
-        clearcoat: 1, transparent: true, opacity: 0.9, depthWrite: false,
-      });
-
-      // Fixed composition: away from the mascots' faces and the primary action.
+      // Placed around the artwork; faces and the drawn heart stay unobstructed.
       const composition = [
-        [-0.36, 0.28, 0.31, 'heart', 0.2], [-0.19, 0.45, 0.18, 'star', 1.2],
-        [0.40, 0.33, 0.24, 'heart', 2.4], [0.24, 0.48, 0.13, 'star', 3.0],
-        [-0.47, -0.17, 0.18, 'star', 1.3], [0.47, -0.11, 0.19, 'heart', 4.3],
-        [0.34, -0.40, 0.17, 'star', 2.5], [-0.30, -0.40, 0.20, 'heart', 0.8],
-        [-0.05, 0.47, 0.12, 'star', 1.9], [0.45, 0.06, 0.13, 'star', 3.7],
-        [-0.43, 0.05, 0.15, 'heart', 3.4], [0.10, -0.48, 0.12, 'star', 2.1],
+        [-0.24, 0.31, 0.58, 'heart', 0.2], [0.10, 0.40, 0.22, 'star', 1.2],
+        [0.40, 0.06, 0.18, 'star', 2.4], [-0.41, -0.09, 0.20, 'star', 3.0],
+        [0.42, -0.26, 0.19, 'star', 1.3], [-0.36, -0.33, 0.25, 'heart', 4.3],
+        [-0.06, 0.44, 0.12, 'star', 2.5], [0.25, -0.41, 0.15, 'star', 0.8],
       ] as const;
-      const mobile = window.matchMedia('(max-width: 660px)').matches;
-      const items = composition.filter((_, i) => !mobile || i < 8).map(([x, y, size, shape, phase], i) => {
-        const mesh = new THREE.Mesh(
-          shape === 'heart' ? heartGeometry : starGeometry,
-          shape === 'heart' ? heartMat : (i % 2 ? blushMat : pearlMat),
-        );
-        mesh.position.z = -0.4 + (i % 4) * 0.4;
+      const items = composition.filter((_, i) => !mobile || i < 6).map(([x, y, size, shape, phase], i) => {
+        const mesh = new THREE.Mesh(shape === 'heart' ? heartGeometry : starGeometry,
+          shape === 'star' ? starMaterial : i % 2 ? peachMaterial : heartMaterial);
+        mesh.position.z = (i % 3) * 0.4;
         mesh.scale.setScalar(size);
         scene.add(mesh);
-        return { mesh, x, y, phase, baseSize: size };
+        return { mesh, x, y, size, phase };
       });
 
-      // Hand-crafted 3D studio objects: pencils, glowing art trails, and small
-      // pearlescent pigment orbs. These are meshes/curves, not a video overlay.
-      const animatedProps: { group: InstanceType<typeof THREE.Group>; x: number; y: number; phase: number }[] = [];
-      const ownedGeometry: { dispose: () => void }[] = [];
-      const ownedMaterials: { dispose: () => void }[] = [];
-      function makePencil(color: number, x: number, y: number, angle: number, phase: number) {
-        const group = new THREE.Group();
-        const shaftGeo = new THREE.CylinderGeometry(.082, .082, 1.08, 6);
-        const tipGeo = new THREE.ConeGeometry(.082, .22, 6);
-        const nibGeo = new THREE.ConeGeometry(.024, .09, 8);
-        const capGeo = new THREE.CylinderGeometry(.087, .087, .12, 8);
-        const bodyMat = new THREE.MeshStandardMaterial({ color, metalness: .08, roughness: .4 });
-        const woodMat = new THREE.MeshStandardMaterial({ color: 0xf7d5ab, roughness: .75 });
-        const nibMat = new THREE.MeshStandardMaterial({ color: 0x665b67, metalness: .18, roughness: .45 });
-        const capMat = new THREE.MeshStandardMaterial({ color: 0xf4e3c5, metalness: .45, roughness: .23 });
-        const shaft = new THREE.Mesh(shaftGeo,bodyMat); group.add(shaft);
-        const tip = new THREE.Mesh(tipGeo,woodMat);tip.position.y = -.65;tip.rotation.z = Math.PI;group.add(tip);
-        const nib = new THREE.Mesh(nibGeo,nibMat);nib.position.y = -.79;nib.rotation.z = Math.PI;group.add(nib);
-        const cap = new THREE.Mesh(capGeo,capMat);cap.position.y = .6;group.add(cap);
-        group.rotation.z = angle;
-        scene.add(group);animatedProps.push({group,x,y,phase});
-        ownedGeometry.push(shaftGeo,tipGeo,nibGeo,capGeo);
-        ownedMaterials.push(bodyMat,woodMat,nibMat,capMat);
+      // A single small sprite texture and one draw call for warm floating dust.
+      const glow = document.createElement('canvas');
+      glow.width = glow.height = 32;
+      const context = glow.getContext('2d');
+      if (context) {
+        const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
+        gradient.addColorStop(0, '#fffdf0');
+        gradient.addColorStop(0.15, '#fff2d8dd');
+        gradient.addColorStop(1, '#fff2d800');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 32, 32);
       }
-      makePencil(theme === 'sage' ? 0xaad4aa : 0xf3a8c7, -.62, -.24, -.58, .2);
-      makePencil(theme === 'sage' ? 0xd4cf86 : 0xa9c7a1, .64, .02, .62, 1.8);
-      // Keep the two plush mascots' faces clear: no orbit rings or trails.
-      const orbs: { mesh: InstanceType<typeof THREE.Mesh>; x:number;y:number;phase:number }[]=[];
-      const orbGeometry=new THREE.SphereGeometry(.065,12,8);ownedGeometry.push(orbGeometry);
-      const orbMat=new THREE.MeshPhysicalMaterial({color:theme==='sage'?0xe8ffcb:0xffd9ed,roughness:.13,metalness:.03,clearcoat:1,transparent:true,opacity:.85});ownedMaterials.push(orbMat);
-      for(let i=0;i<(mobile?5:9);i++) {
-        const mesh=new THREE.Mesh(orbGeometry,orbMat);scene.add(mesh);
-        orbs.push({mesh,x:Math.sin(i*2.4)*.42,y:Math.cos(i*1.7)*.42,phase:i*.75});
-      }
+      const glowMap = own(new THREE.CanvasTexture(glow));
+      const dustGeometry = own(new THREE.BufferGeometry());
+      const dustCount = mobile ? 18 : 36;
+      const positions = new Float32Array(dustCount * 3);
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const dustMaterial = own(new THREE.PointsMaterial({
+        color: 0xfff1cf, size: 0.11, map: glowMap, transparent: true,
+        opacity: 0.65, depthWrite: false, blending: THREE.AdditiveBlending,
+      }));
+      scene.add(new THREE.Points(dustGeometry, dustMaterial));
+      const burst = Array.from({ length: mobile ? 7 : 11 }, (_, i) => {
+        const mesh = new THREE.Mesh(heartGeometry, i % 2 ? peachMaterial : heartMaterial);
+        mesh.visible = false;
+        scene.add(mesh);
+        return mesh;
+      });
 
-      let width = 1;
-      let height = 6;
+      let width = 6;
+      const height = 6;
       const resize = () => {
         const bounds = host.getBoundingClientRect();
         width = Math.max(1, bounds.width / Math.max(bounds.height, 1) * height);
@@ -155,6 +151,7 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
         renderer.setSize(Math.max(1, bounds.width), Math.max(1, bounds.height), false);
       };
       const resizeObserver = new ResizeObserver(resize);
+      cleanups.push(() => resizeObserver.disconnect());
       resizeObserver.observe(host);
       resize();
 
@@ -162,70 +159,90 @@ export function HeroAtmosphere({ theme }: { theme: Theme }) {
       let pointerY = 0;
       const move = (event: PointerEvent) => {
         if (event.pointerType === 'touch') return;
-        const rect = host.getBoundingClientRect();
-        pointerX = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
-        pointerY = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+        const box = host.getBoundingClientRect();
+        pointerX = ((event.clientX - box.left) / box.width - 0.5) * 2;
+        pointerY = ((event.clientY - box.top) / box.height - 0.5) * 2;
       };
+      const reset = () => { pointerX = 0; pointerY = 0; };
       host.addEventListener('pointermove', move, { passive: true });
-      const resetPointer = () => { pointerX = 0; pointerY = 0; };
-      host.addEventListener('pointerleave', resetPointer);
+      host.addEventListener('pointerleave', reset);
+      cleanups.push(() => { host.removeEventListener('pointermove', move); host.removeEventListener('pointerleave', reset); });
 
-      let visible = true;
-      const visibility = new IntersectionObserver((entries) => { visible = entries[0]?.isIntersecting ?? false; });
-      visibility.observe(host);
-      let frame = 0;
-      let prev = 0;
-      const startedAt = performance.now();
+      let elapsed = 0;
+      let last = 0;
+      let burstAt = -10;
+      const love = () => { burstAt = elapsed; };
+      host.addEventListener('hero-love', love);
+      cleanups.push(() => host.removeEventListener('hero-love', love));
       const render = (now: number) => {
-        if (disposed) return;
-        frame = requestAnimationFrame(render);
-        if (!visible || document.hidden || now - prev < (mobile ? 33 : 16)) return;
-        prev = now;
-        const t = (now - startedAt) / 1000;
-        items.forEach(({ mesh, x, y, phase, baseSize }, i) => {
-          mesh.position.x = x * width + Math.sin(t * 0.49 + phase) * 0.10;
-          mesh.position.y = y * height + Math.sin(t * 0.70 + phase) * 0.14;
-          mesh.rotation.set(Math.sin(t * 0.5 + phase) * 0.16, Math.cos(t * 0.42 + phase) * 0.23, Math.sin(t * 0.35 + phase) * 0.17);
-          const s = 1 + Math.sin(t * 1.1 + i) * 0.055;
-          mesh.scale.setScalar(baseSize * s);
+        if (disposed || now - last < (mobile ? 33 : 22)) return;
+        const delta = Math.min((now - last) / 1000, 0.06);
+        last = now;
+        elapsed += delta;
+        const t = elapsed;
+        items.forEach(({ mesh, x, y, phase, size }) => {
+          mesh.position.x = x * width + Math.sin(t * 0.45 + phase) * 0.07;
+          mesh.position.y = y * height + Math.sin(t * 0.65 + phase) * 0.11;
+          mesh.rotation.set(Math.sin(t * 0.45 + phase) * 0.13,
+            Math.sin(t * 0.4 + phase) * 0.28, Math.sin(t * 0.3 + phase) * 0.16);
+          mesh.scale.setScalar(size * (1 + Math.sin(t + phase) * 0.035));
         });
-        animatedProps.forEach(({group,x,y,phase}) => {
-          group.position.x = x*width*.92 + Math.sin(t*.63+phase)*.12;
-          group.position.y = y*height + Math.cos(t*.74+phase)*.12;
-          group.rotation.y = Math.sin(t*.48+phase)*.3;
+        for (let i = 0; i < dustCount; i++) {
+          positions[i * 3] = Math.sin(i * 12.9) * width * 0.47 + Math.sin(t * 0.18 + i) * 0.09;
+          positions[i * 3 + 1] = ((i * 0.73 + t * 0.07) % height) - height / 2;
+          positions[i * 3 + 2] = -1;
+        }
+        dustGeometry.attributes.position.needsUpdate = true;
+        const age = (t - burstAt) / 2.2;
+        burst.forEach((mesh, i) => {
+          mesh.visible = age >= 0 && age < 1;
+          if (!mesh.visible) return;
+          const spread = (i / (burst.length - 1) - 0.5) * 2;
+          mesh.position.set(spread * age * width * 0.28, -0.3 + age * 2.5 + Math.sin(i * 2) * 0.2, 1.5);
+          mesh.rotation.set(age * 0.3, Math.sin(i) * age, spread * age * 0.5);
+          mesh.scale.setScalar((0.12 + i % 3 * 0.035) * Math.sin(age * Math.PI));
         });
-        orbs.forEach(({mesh,x,y,phase}) => {
-          mesh.position.set(x*width + Math.sin(t*.47+phase)*.14, y*height + Math.sin(t*.65+phase)*.16, -.22);
-          mesh.scale.setScalar(.65 + .28*(1+Math.sin(t*1.3+phase)));
-        });
-        // Keep the depth motion extremely gentle so the welcome screen stays calm.
-        scene.rotation.y += (pointerX * 0.075 - scene.rotation.y) * 0.035;
-        scene.rotation.x += (-pointerY * 0.06 - scene.rotation.x) * 0.035;
+        const smoothing = 1 - Math.exp(-3 * delta);
+        scene.rotation.y += (pointerX * 0.055 - scene.rotation.y) * smoothing;
+        scene.rotation.x += (-pointerY * 0.035 - scene.rotation.x) * smoothing;
+        bounce.position.x += (pointerX * 2.5 - bounce.position.x) * smoothing;
         renderer.render(scene, camera);
+        canvas.dataset.ready = 'true';
       };
-      frame = requestAnimationFrame(render);
 
-      release = () => {
-        cancelAnimationFrame(frame);
-        resizeObserver.disconnect();
-        visibility.disconnect();
-        host.removeEventListener('pointermove', move);
-        host.removeEventListener('pointerleave', resetPointer);
-        scene.clear();
-        heartGeometry.dispose();
-        starGeometry.dispose();
-        heartMat.dispose();
-        blushMat.dispose();
-        pearlMat.dispose();
-        ownedGeometry.forEach(g => g.dispose());
-        ownedMaterials.forEach(m => m.dispose());
-        renderer.dispose();
+      let visible = false;
+      let contextLost = false;
+      const syncPlayback = () => {
+        last = performance.now();
+        renderer.setAnimationLoop(!disposed && visible && !document.hidden && !contextLost ? render : null);
       };
+      const visibility = new IntersectionObserver(([entry]) => {
+        visible = entry?.isIntersecting ?? false;
+        host.dataset.visible = visible ? 'true' : 'false';
+        syncPlayback();
+      });
+      visibility.observe(host);
+      const onVisibility = () => {
+        host.dataset.visible = !document.hidden && visible ? 'true' : 'false';
+        syncPlayback();
+      };
+      const lost = () => { contextLost = true; syncPlayback(); };
+      const restored = () => { contextLost = false; syncPlayback(); };
+      document.addEventListener('visibilitychange', onVisibility);
+      canvas.addEventListener('webglcontextlost', lost);
+      canvas.addEventListener('webglcontextrestored', restored);
+      cleanups.push(() => {
+        visibility.disconnect();
+        document.removeEventListener('visibilitychange', onVisibility);
+        canvas.removeEventListener('webglcontextlost', lost);
+        canvas.removeEventListener('webglcontextrestored', restored);
+        host.removeAttribute('data-visible');
+      });
     }
 
-    void start().catch(() => { /* Optional enhancement; CSS fallback remains visible. */ });
+    void start().catch(() => { release(); });
     return () => { disposed = true; release(); };
-  }, [theme]);
+  }, [theme, moving]);
 
   return <canvas className="hero-atmosphere" ref={canvasRef} aria-hidden="true" />;
 }
