@@ -6,6 +6,7 @@ import {
 import { HeroStage } from './hero/HeroStage';
 import { createRoomId, isRoomId } from './board';
 import { DrawingCanvas, type CanvasHandle } from './Canvas';
+import { SaveDrawing } from './SaveDrawing';
 import { brushChoices, paintStroke } from './brushes';
 import { getHexChannels, setHexChannel } from './colorPaint';
 import { lessonSteps, traceCoverage } from './guidedLesson';
@@ -125,16 +126,20 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
       </header>
       <main className="welcome-main">
         <section className="welcome-copy">
-          <div className="eyebrow"><Sparkles size={15} /> FOR THE LITTLE MOMENTS TOGETHER</div>
-          <h1>Draw together.<br /><em>Stay a little closer.</em></h1>
+          <div className="eyebrow"><Sparkles size={15} /> a little time, just us</div>
+          <h1><span className="hero-title-line">Draw together.</span><em>Stay a little closer.
+            <svg className="hero-handdrawn" viewBox="0 0 450 20" aria-hidden="true">
+              <path d="M4 12C100 1 268 2 398 10M42 17C181 9 280 11 366 15M411 8C402-3 391 4 411 17C435 3 423-4 411 8" />
+            </svg>
+          </em></h1>
           <p>A cozy little art studio for you and your favorite person. Make a mess, make a memory, make something yours.</p>
-          <div className="welcome-form">
+          <form className="welcome-form" onSubmit={(event) => { event.preventDefault(); enter(); }} noValidate>
             <label htmlFor="name">Your little nickname</label>
-            <input id="name" autoComplete="off" maxLength={24} value={name}
-              placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }}
-              onKeyDown={(event) => { if (event.key === 'Enter') enter(); }} />
-            {error && <span className="form-error" role="alert">{error}</span>}
-            <button className="primary-btn" onClick={() => enter()}>
+            <input id="name" autoComplete="off" maxLength={24} value={name} required
+              aria-invalid={Boolean(error)} aria-describedby={error ? 'name-error' : undefined}
+              placeholder="What should we call you?" onChange={(event) => { setName(event.target.value); setError(''); }} />
+            {error && <span id="name-error" className="form-error" role="alert">{error}</span>}
+            <button type="submit" className="primary-btn">
               {room ? 'Join the drawing date' : 'Start drawing together'}
               <span className="button-icon"><ArrowUpRight size={19} /></span>
             </button>
@@ -142,10 +147,10 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
               <Plus size={14} /> Start a completely new room
             </button>}
             <span className="form-note">No account form needed. Your room link is just for the two of you.</span>
-          </div>
+          </form>
           <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The sweetest things are made together.</div>
         </section>
-        <HeroStage theme={theme} />
+        <HeroStage key={room ? 'invitation' : 'home'} theme={theme} illustrated={Boolean(room)} />
       </main>
       <footer className="welcome-footer"><span>Made for slow evenings, soft smiles, and messy doodles.</span><span>♡</span></footer>
     </div>
@@ -178,9 +183,23 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
   const filling = useRef(false);
   const [traceProgress, setTraceProgress] = useState(0);
   const [copyState, setCopyState] = useState(false);
+  const [brushesOpen, setBrushesOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(() => window.matchMedia('(min-width: 961px)').matches);
+  const [saveArtwork, setSaveArtwork] = useState<HTMLCanvasElement | null>(null);
+  const [preparingSave, setPreparingSave] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const capturing = useRef(false);
+  const saveButton = useRef<HTMLButtonElement>(null);
   const canvas = useRef<CanvasHandle>(null);
   const full = room.connection === 'full';
-  const onlinePartner = useMemo(() => room.members.find((member) => member.id !== room.myId), [room.members, room.myId]);
+  const onlinePartner = useMemo(() => room.connection === 'connected'
+    ? room.members.find((member) => member.id !== room.myId) : undefined, [room.members, room.myId, room.connection]);
+  const duoStatus = room.connection === 'solo' ? 'Drawing on this device'
+    : room.connection === 'connecting' ? 'Connecting your studio…'
+    : room.connection === 'error' ? 'Offline · sharing is paused'
+    : full ? 'Both places are taken'
+    : room.connection === 'expired' ? 'This invitation has expired'
+    : onlinePartner ? 'Here together ♡' : 'A seat waiting for your person';
   const visibleSelected = useMemo(() => {
     const visible = new Set(room.board.strokes.filter((stroke) => canEditStroke(stroke, room.seat)).map((stroke) => stroke.id));
     return selectedIds.filter((id) => visible.has(id));
@@ -276,6 +295,23 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
     }
   }
 
+  async function prepareSave() {
+    if (capturing.current) return;
+    capturing.current = true;
+    setPreparingSave(true);
+    setSaveError('');
+    try {
+      const snapshot = await canvas.current?.snapshot(guideVisible ? document.querySelector<SVGSVGElement>('.canvas-shell .guide-layer') : null);
+      if (!snapshot) throw new Error('Canvas unavailable');
+      setSaveArtwork(snapshot);
+    } catch {
+      setSaveError('Could not prepare your drawing. Please try again.');
+    } finally {
+      capturing.current = false;
+      setPreparingSave(false);
+    }
+  }
+
   function reset(template: TemplateId) {
     if (!canDraw) return;
     if (template === room.board.template && room.board.strokes.length === 0 && (room.board.lessonStep ?? 0) === 0) return;
@@ -312,8 +348,21 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
               <h1>Today's little <em>masterpiece.</em></h1>
               <p>One canvas. Two hearts. No perfect lines needed.</p>
             </div>
-            <button className="invite-btn" disabled={!room.seat} onClick={copyInvite} aria-label={copyState ? 'Room link copied' : 'Copy invitation link'}>
-              <Link2 size={16} /> <span>{copyState ? 'Link copied' : 'Invite your person'}</span>{copyState ? <Check size={15} /> : <ArrowUpRight size={15} />}
+            <button type="button" className="studio-save-button" ref={saveButton} onClick={prepareSave} disabled={preparingSave} aria-haspopup="dialog">
+              <Download size={17} /><span>{preparingSave ? 'Preparing…' : 'Save drawing'}</span>
+            </button>
+          </div>
+          {saveError && <p className="save-error" role="alert">{saveError}</p>}
+
+          <div className="studio-duo" role="group" aria-label="Your drawing date" data-connection={room.connection}>
+            <div className="duo-avatars" aria-hidden="true"><Avatar name={name} />
+              {onlinePartner ? <Avatar name={onlinePartner.name} alt /> : <span className="avatar awaiting-avatar">♡</span>}
+            </div>
+            <div className="duo-copy"><strong title={onlinePartner ? `${name} + ${onlinePartner.name}` : name}>
+              {name}{onlinePartner && <> <span>+</span> {onlinePartner.name}</>}
+            </strong><span className="duo-status" role="status"><i aria-hidden="true" />{duoStatus}</span></div>
+            <button className="duo-invite" disabled={!room.seat} onClick={copyInvite} aria-label={copyState ? 'Room link copied' : 'Copy invitation link'}>
+              {copyState ? <Check size={16} /> : <Link2 size={16} />}<span>{copyState ? 'Copied' : 'Invite'}</span>
             </button>
           </div>
 
@@ -321,11 +370,6 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
             <div className="paper-header">
               <div className="paper-header-title"><span className="paper-flower">✿</span><span>OUR CANVAS</span></div>
               <div className="paper-header-actions">
-                <span className={`drawing-status ${room.connection === 'connected' ? 'is-live' : ''}`}
-                  role="status" title={room.connection === 'connected' ? 'Connected to your private room' : 'Drawings stay on this device until connected'}>
-                  <i aria-hidden="true" />
-                  {room.connection === 'connected' ? 'Live room' : room.connection === 'connecting' ? 'Connecting' : room.connection === 'solo' ? 'On this device' : 'Offline'}
-                </span>
                 <button type="button" className="guide-chip" title="Clear drawing for both of you"
                   aria-label="Reset canvas for both people" disabled={!canDraw}
                   onClick={() => reset(room.board.template)}><RotateCcw size={14} /><span>Reset</span></button>
@@ -380,7 +424,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
             <div className="canvas-footer"><span>{tool === 'lasso-paint' ? 'Trace a shape to paint it instantly ♡' : tool === 'lasso' ? 'Circle ink to move or duplicate it ♡' : tool === 'picker' ? 'Tap a color on the canvas to pick it ✿' : tool === 'fill' ? fillMessage : 'Little strokes, big feelings ♡'}</span><span>{room.board.strokes.filter((stroke) => !stroke.hidden).length} strokes</span></div>
           </div>
 
-          <div className="tools-bar" role="toolbar" aria-label="Drawing tools">
+          <div className="tools-bar" role="group" aria-label="Drawing tools">
             <div className="tools-top-row">
               <div className="tool-mode" aria-label="Brush, eraser, fill, lasso draw and selection">
                 <button className={`tool-btn ${tool === 'pen' ? 'selected' : ''}`} title="Brush" aria-label="Brush" aria-pressed={tool === 'pen'} onClick={() => chooseTool('pen')}><Paintbrush size={18} /><span>Brush</span></button>
@@ -389,10 +433,8 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
                 <button className={`tool-btn ${tool === 'lasso-paint' ? 'selected' : ''}`} title="Draw a filled shape with a freehand lasso" aria-label="Lasso draw" aria-pressed={tool === 'lasso-paint'} onClick={() => chooseTool('lasso-paint')}><Lasso size={18} /><span>Lasso draw</span></button>
                 <button className={`tool-btn ${tool === 'lasso' ? 'selected' : ''}`} title="Select and move artwork" aria-label="Select artwork" aria-pressed={tool === 'lasso'} onClick={() => chooseTool('lasso')}><Lasso size={18} /><span>Select</span></button>
               </div>
-              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} disabled={tool === 'lasso' || tool === 'lasso-paint' || tool === 'fill'} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
               <div className="tool-actions">
                 <button className="icon-action" aria-label="Undo last action" title="Undo last action" disabled={!room.canUndo || !canDraw} onClick={room.undo}><RotateCcw size={18} /></button>
-                <button className="icon-action save-action" aria-label="Download drawing as PNG" title="Download drawing as PNG" onClick={() => canvas.current?.save(guideVisible ? document.querySelector<SVGSVGElement>('.guide-layer') : null)}><Download size={18} /></button>
               </div>
             </div>
             {tool === 'lasso' ? (
@@ -412,7 +454,13 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
                 </div>}
               </div>
             ) : <>
-            <div className="brush-collection">
+            <div className="tools-settings-row">
+              <button type="button" className="brush-shelf-toggle" aria-expanded={brushesOpen} aria-controls="brush-library" onClick={() => setBrushesOpen((open) => !open)}>
+                <Paintbrush size={15} /><span>{brushChoices.find((choice) => choice.id === brush)?.name} brush</span><ChevronDown size={14} />
+              </button>
+              <label className="size-slider"><span>Size</span><input aria-label="Brush size" type="range" min={2} max={34} step={1} value={size} disabled={tool === 'picker' || tool === 'lasso-paint' || tool === 'fill'} onChange={(event) => setSize(Number(event.target.value))} /><span className="size-value">{size}</span></label>
+            </div>
+            {brushesOpen && <div className="brush-collection" id="brush-library">
               <div className="brush-collection-heading">
                 <span className="brush-collection-title">BRUSH LIBRARY <span aria-hidden="true">✳</span></span>
                 <label className="opacity-control">
@@ -434,21 +482,20 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
             <div className="tools-bottom-row">
               <span className="palette-label">COLORS</span>
               <div className="swatches" aria-label="Drawing colors">
                 {colors.map((option) => <button key={option.value} title={option.name} aria-label={option.name}
                   aria-pressed={color.toLowerCase() === option.value.toLowerCase() && paintMode === 'solid'}
                   className={`swatch ${color.toLowerCase() === option.value.toLowerCase() && paintMode === 'solid' ? 'active' : ''}`}
-                  style={{ backgroundColor: option.value }}
-                  onClick={() => chooseInk(option.value)} />)}
+                  onClick={() => chooseInk(option.value)}><span style={{ backgroundColor: option.value }} /></button>)}
                 <label className="custom-color" title="Choose your own ink color">
                   <input type="color" value={color} aria-label="Choose a custom ink color" onChange={(event) => chooseInk(event.target.value)} />
                   <span aria-hidden="true">+</span>
                 </label>
               </div>
-              <output className="current-ink" aria-label="Current drawing color" aria-live="polite">
+              <div className="palette-extra"><output className="current-ink" aria-label="Current drawing color" aria-live="polite">
                 <span className="current-ink-dot" style={{ background: colorPreview }} aria-hidden="true" />
                 {paintMode === 'gradient' ? 'Gradient' : color.toUpperCase()}
               </output>
@@ -462,7 +509,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
                 onClick={() => setColorLabOpen((open) => !open)}>
                 <span className="color-lab-dot" style={{ background: colorPreview }} />
                 <Palette size={15} /><span>Mix & shade</span><ChevronDown size={14} />
-              </button>
+              </button></div>
             </div>
             {colorLabOpen && <section id="color-atelier" className="color-atelier" aria-label="Color and shading controls">
               <div className="color-atelier-heading"><div><span>THE COLOR ATELIER</span><strong>A little magic for your ink ✿</strong></div>
@@ -521,8 +568,10 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
 
         <aside className="studio-sidebar" aria-label="Your drawing date">
           <section className="side-card prompt-card">
-            <div className="side-heading"><div><span className="side-eyebrow">LET'S MAKE SOMETHING</span><h2>Pick a little doodle</h2></div><Sparkles size={18} /></div>
-            <div className="template-list">
+            <button type="button" className="doodle-shelf-toggle" aria-expanded={templatesOpen} aria-controls="doodle-library" onClick={() => setTemplatesOpen((open) => !open)}>
+              <span><span className="side-eyebrow">LET'S MAKE SOMETHING</span><strong>Pick a little doodle</strong><small>{templates.find((template) => template.id === room.board.template)?.name}</small></span><ChevronDown size={18} />
+            </button>
+            {templatesOpen && <div className="template-list" id="doodle-library">
               {templates.map((template) => (
                 <button key={template.id} className={`template-option ${template.id === room.board.template ? 'active' : ''}`}
                   aria-pressed={template.id === room.board.template} onClick={() => reset(template.id)} disabled={full}>
@@ -531,26 +580,7 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
                   {template.id === room.board.template ? <Check size={16} /> : <ChevronRight size={16} />}
                 </button>
               ))}
-            </div>
-          </section>
-
-          <section className="side-card people-card">
-            <div className="side-heading"><div><span className="side-eyebrow">SIDE BY SIDE</span><h2>Our little duo</h2></div><span className="tiny-hearts">♡</span></div>
-            <div className="people-list">
-              <div className="person"><Avatar name={name} /><div><strong>{name}</strong><span><i className="presence-dot" /> You're here</span></div></div>
-              <div className={`person ${!onlinePartner ? 'awaiting' : ''}`}>
-                {onlinePartner ? <Avatar name={onlinePartner.name} alt /> : <div className="avatar awaiting-avatar">♡</div>}
-                <div><strong>{onlinePartner?.name || 'Your person'}</strong><span>{onlinePartner ? <><i className="presence-dot" /> Drawing with you</> : 'A seat waiting for them'}</span></div>
-              </div>
-            </div>
-            <p className="people-message" role="status">{room.connection === 'solo'
-              ? 'Drawing is saved here. Connect Supabase to draw together.'
-              : room.connection === 'connecting' ? 'Connecting your studio. You can draw while it connects.'
-              : room.connection === 'full' ? 'This room already has two artists.'
-              : room.connection === 'expired' ? 'This invitation has expired. Start a fresh drawing date.'
-              : room.connection === 'error' ? 'Offline: drawing works here, but live sharing is paused.'
-              : onlinePartner ? 'Together at last. Let the doodling begin ♡' : 'Share the room link so they can join you.'}</p>
-            <button className="secondary-btn fullwidth" disabled={!room.seat} onClick={copyInvite}><Link2 size={15} /> {copyState ? 'Copied!' : 'Copy room link'}</button>
+            </div>}
           </section>
 
           <section className="side-card love-card">
@@ -564,6 +594,10 @@ function Studio({ roomId, name, theme, onThemeChange, onExit, onNewRoom }: {
         </aside>
       </main>
       <footer className="site-footer">A tiny corner of the universe for two. <span>♡</span></footer>
+      {saveArtwork && <SaveDrawing artwork={saveArtwork} names={[name, onlinePartner?.name].filter(Boolean).join(' + ')} theme={theme} onClose={() => {
+        setSaveArtwork(null);
+        saveButton.current?.focus();
+      }} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { BLEND_MODES, BRUSH_IDS } from './types';
+import { BLEND_MODES, BRUSH_IDS, TEMPLATE_IDS } from './types';
 import { chronologicalStrokes } from './sceneOrder';
 import { saveDurableBoard } from './boardStorage';
 import { isSeat, pointsInSeat } from './ownership';
@@ -31,7 +31,7 @@ export function isPoint(value: unknown): value is Point {
 }
 
 export function isTemplate(value: unknown): value is TemplateId {
-  return value === 'heart' || value === 'flowers' || value === 'bunny' || value === 'blank';
+  return TEMPLATE_IDS.some((template) => template === value);
 }
 
 export function isStroke(value: unknown): value is Stroke {
