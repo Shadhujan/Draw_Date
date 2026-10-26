@@ -1,6 +1,8 @@
-// Original, code-built clay miniatures. No model downloads or external asset requests.
+import type { PlushBears } from './loadPlushBears';
+
+// Original miniature room with shared, locally hosted plush teddy geometry.
 // Three.js is deliberately confined to this lazy-loaded decorative scene.
-export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(resource: R) => R) {
+export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(resource: R) => R, plushBears: PlushBears) {
   const world = new T.Group();
   const sphere = own(new T.SphereGeometry(1, 32, 24));
   const material = (_name: string, color: number, roughness = .72) => {
@@ -23,25 +25,6 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
   const skyDay = new T.Color(0xffe4b0), skyNight = new T.Color(0x596780);
   const glow = own(new T.MeshBasicMaterial({ color: 0xfff1c7 }));
   const lampGlow = own(new T.MeshStandardMaterial({ color: 0xffe3ad, emissive: 0xffad4e, emissiveIntensity: .05, roughness: .5 }));
-
-  // Fine, deterministic surface grain makes the bears feel soft instead of plastic.
-  const grain = document.createElement('canvas');
-  grain.width = grain.height = 128;
-  const grainContext = grain.getContext('2d');
-  if (grainContext) {
-    const pixels = grainContext.createImageData(128, 128);
-    let seed = 83;
-    for (let i = 0; i < pixels.data.length; i += 4) {
-      seed = (seed * 16807) % 2147483647;
-      const value = 155 + seed % 80;
-      pixels.data.set([value, value, value, 255], i);
-    }
-    grainContext.putImageData(pixels, 0, 0);
-  }
-  const grainMap = own(new T.CanvasTexture(grain));
-  grainMap.wrapS = grainMap.wrapT = T.RepeatWrapping;
-  grainMap.repeat.set(5, 5);
-  for (const value of [cream, caramel]) { value.bumpMap = grainMap; value.bumpScale = .022; }
 
   function ball(parent: any, mat: any, x: number, y: number, z: number, sx: number, sy = sx, sz = sx) {
     const mesh = new T.Mesh(sphere, mat);
@@ -157,41 +140,20 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
   ball(pencil, pink, 0, .78, 0, .057, .06, .057);
   pencil.rotation.z = -.40;
 
-  const bears: { body: any; head: any; eyes: any[]; arm: any; cheeks: any[]; x: number; tilt: number }[] = [];
-  function bear(x: number, mat: any, accent: any, tilt: number) {
-    const body = new T.Group(); body.position.set(x, .1, -.04); world.add(body);
-    // Feet and belly peek out below the tabletop.
-    ball(body, mat, -.31, .33, .40, .28, .24, .32);
-    ball(body, mat, .31, .33, .40, .28, .24, .32);
-    ball(body, mat, 0, .84, 0, .49, .65, .39);
-    ball(body, muzzle, 0, .77, .34, .30, .36, .06);
-    const head = new T.Group(); head.position.set(0, 1.78, 0); head.rotation.z = tilt; body.add(head);
-    ball(head, mat, 0, 0, 0, .64, .60, .52);
-    for (const side of [-1, 1]) {
-      ball(head, mat, side * .46, .46, -.04, .245, .25, .17);
-      ball(head, pink, side * .46, .46, .11, .145, .15, .035);
+  const bears = [plushBears.cream, plushBears.caramel].map((asset, i) => {
+    const body = new T.Group(); body.position.set(i ? .71 : -.71, .24, -.04);
+    asset.scale.setScalar(4.2); body.add(asset); world.add(body);
+    const seat = cylinder(world, i ? sage : pink, .59, .56, .20, i ? .71 : -.71, .13, .04);
+    seat.scale.z = .85;
+    ball(world, i ? sage : pink, i ? .71 : -.71, .23, .04, .59, .03, .50);
+    const head = asset.getObjectByName('RIG_head');
+    const arms = [asset.getObjectByName('RIG_left_arm'), asset.getObjectByName('RIG_right_arm')];
+    if (i) {
+      ball(body, sage, 0, 1.10, .12, .35, .09, .18);
+      const scarf = box(body, sage, .14, .28, .035, .20, .98, .33); scarf.rotation.z = -.25;
     }
-    ball(head, muzzle, 0, -.16, .48, .27, .21, .075);
-    const eyes = [-1, 1].map(side => {
-      const eye = ball(head, dark, side * .245, .035, .475, .046, .062, .024);
-      eye.userData.glint = ball(head, white, side * .245 - .012, .052, .497, .012);
-      return eye;
-    });
-    const cheeks = [-1, 1].map(side => ball(head, pink, side * .38, -.12, .43, .115, .066, .027));
-    ball(head, dark, 0, -.10, .565, .065, .045, .028);
-    line(head, dark, [[0, -.12, .559], [0, -.21, .559], [-.07, -.24, .54], [-.11, -.19, .54]], .015);
-    line(head, dark, [[0, -.21, .559], [.07, -.24, .54], [.11, -.19, .54]], .015);
-    // Keep the cream bear's head clear; only the caramel bear wears a scarf.
-    if (x > 0) {
-      ball(body, accent, 0, 1.29, .28, .36, .10, .17);
-      const scarf = box(body, accent, .16, .37, .055, .20, 1.1, .40); scarf.rotation.z = -.25;
-    }
-    ball(body, mat, x < 0 ? -.37 : .37, 1.0, .49, .22, .28, .23);
-    const arm = new T.Group(); arm.position.set(x < 0 ? .34 : -.34, 1.10, .49); body.add(arm);
-    ball(arm, mat, 0, 0, 0, .235, .22, .30);
-    bears.push({ body, head, eyes, arm, cheeks, x, tilt });
-  }
-  bear(-.71, cream, pink, -.10); bear(.71, caramel, sage, .10);
+    return { body, head, arms, headY: head.position.y, tilt: i ? .07 : -.07 };
+  });
 
   // A tiny cup of paintbrushes and a mug with a handle.
   cylinder(world, sage, .16, .135, .31, 1.57, 1.39, .91);
@@ -250,14 +212,14 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
       const age = moving ? time - loveAt : 100;
       const reaction = age >= 0 && age < 2.6 ? Math.sin(Math.min(age / 2.6, 1) * Math.PI) : 0;
       bears.forEach((bear, i) => {
-        bear.body.position.y = .1 + Math.sin(t * 1.7 + i * .6) * .012 + reaction * .11;
-        bear.head.rotation.z = bear.tilt + Math.sin(t * .65 + i) * .035 + (i ? -1 : 1) * reaction * .12;
-        bear.head.rotation.y = px * .09;
-        bear.head.rotation.x = py * .035;
-        bear.arm.rotation.x = Math.sin(t * 2 + i) * .07 - reaction * .3;
-        const blink = moving && (t + i * .43) % 5.6 < .13;
-        bear.eyes.forEach(eye => { eye.scale.y = blink ? .009 : .062; eye.userData.glint.visible = !blink; });
-        bear.cheeks.forEach(cheek => { cheek.scale.x = .115 + reaction * .035; });
+        bear.body.position.y = .24 + reaction * .07;
+        bear.head.position.y = bear.headY + Math.sin(t * 1.7 + i * .6) * .0015;
+        bear.head.rotation.z = bear.tilt + Math.sin(t * .65 + i) * .025 + (i ? -1 : 1) * reaction * .10;
+        bear.head.rotation.y = px * .07;
+        bear.head.rotation.x = py * .025;
+        bear.arms.forEach((arm: any, j: number) => {
+          if (arm) arm.rotation.x = -.85 + Math.sin(t * 1.6 + i + j) * .035 - reaction * .10;
+        });
       });
       const progress = moving ? Math.min(1, (t % 12) / 5.5) : lastProgress;
       lastProgress = progress;

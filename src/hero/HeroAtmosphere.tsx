@@ -19,16 +19,22 @@ export function HeroAtmosphere({ theme, moving, night, onReady }: { theme: Theme
     let disposed = false;
     let release = () => {};
     async function start() {
-      const [T, { RoomEnvironment }, { createLivingStudio }] = await Promise.all([
-        import('three'), import('three/addons/environments/RoomEnvironment.js'), import('./livingStudio'),
+      const [T, { RoomEnvironment }, { createLivingStudio }, { loadPlushBears }] = await Promise.all([
+        import('three'), import('three/addons/environments/RoomEnvironment.js'), import('./livingStudio'), import('./loadPlushBears'),
       ]);
       if (disposed || !canvas || !host) return;
       let renderer: InstanceType<typeof T.WebGLRenderer>;
       try { renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'low-power' }); }
       catch { return; }
-      const resources: { dispose(): void }[] = [];
+      const resources = new Set<{ dispose(): void }>();
       const cleanups: (() => void)[] = [];
-      function own<R extends { dispose(): void }>(resource: R): R { resources.push(resource); return resource; }
+      function own<R extends { dispose(): void }>(resource: R): R {
+        if (!resources.has(resource)) {
+          if (disposed || released) resource.dispose();
+          else resources.add(resource);
+        }
+        return resource;
+      }
       const scene = new T.Scene();
       let failed = false;
       let released = false;
@@ -72,7 +78,9 @@ export function HeroAtmosphere({ theme, moving, night, onReady }: { theme: Theme
       cleanups.push(() => sunlight.shadow.dispose());
       const fill = new T.DirectionalLight(0xffc4d4, .75); fill.position.set(4, 3, 4); scene.add(fill);
       const lamplight = new T.PointLight(0xffc678, 0, 7, 2); lamplight.position.set(-1.6, 2.8, .15); scene.add(lamplight);
-      const studio = createLivingStudio(T, own); scene.add(studio.world);
+      const plushBears = await loadPlushBears(T, own);
+      if (disposed) return;
+      const studio = createLivingStudio(T, own, plushBears); scene.add(studio.world);
       const camera = new T.OrthographicCamera(-4, 4, 4, -4, .1, 40);
       camera.position.set(0, 4.35, 8.4); camera.lookAt(0, 1.8, 0);
       let px = 0, py = 0, x = 0, y = 0, elapsed = 0, last = 0;

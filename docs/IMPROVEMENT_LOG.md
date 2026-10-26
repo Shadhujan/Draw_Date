@@ -2,6 +2,20 @@
 
 All dates are Asia/Colombo. Changes are committed to `Dev` for owner review; this document does not imply a production release.
 
+## 26 October 2026 — Connected plush bears in the studio
+
+**Baseline:** remote `Dev` at `258191adc4b062cb39adb7a197e4194ef64ede80`, including the owner's applied hero patches.
+
+**Problem:** the owner approved the new teddy face, but the feet looked detached. The approximately 27 MB appearance prototype was also too heavy to place directly in the welcome scene.
+
+**Change:** joined hips, thighs and feet into a continuous seated-body mesh; preserved the approved face; added head/arm pivots. Simplified the asset to approximately 4 MB / 69k triangles, retaining short fibre geometry and the embedded normal texture. Closed simplification seams/poles after visual QA found a head-cap defect. Added the locally hosted model and a lazy GLTF loader; the cream and caramel bears share geometry/textures and one download. Added soft seats and posed paws toward the drawing table. Existing pencil trace, reactions, pointer response, evening lighting and theme controls remain. The original fluffy art remains on invitations and as graphics/model-loading fallback.
+
+**Validation:** TypeScript/Vite build and whitespace check; Blender structural checks and renders; actual Three.js scene rendered in local headless Chromium/software WebGL. Eight widths (320–1440px) passed overflow, title and scene-footer checks. Verified one model request for both bears, one renderer across theme/motion changes, paused/offscreen draw-call stoppage, initial/live reduced motion and real WebGL loss/restoration. Invitation entry, nickname validation, Enter submission, drawing, swatches, lasso, undo, PNG export, reload recovery and leave/return checks passed without page exceptions. An aborted model request kept the illustration, love feedback and drawing entry usable; entering the studio while a delayed model request completed produced no page errors or stray hero canvas.
+
+**Delivery:** repository-bound files omit private editor links and editor IDs. The sanitized GitHub write still returned HTTP 403 `Resource not accessible by integration`, so this pass is delivered as an incremental binary-capable patch. Remote branches and production were not changed.
+
+**Limits:** real-phone GPU/battery performance and real two-device collaboration remain unverified. Existing Vite large-chunk advisory remains. The material is a short velour coat, with less fluff than the original illustration.
+
 ## 26 October 2026 — Preserve the fluffy invitation scene and fix the bow
 
 **Baseline:** local second-pass commit `8ec4a29`; remote `Dev` still at `004d298` when rechecked.

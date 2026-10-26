@@ -27,9 +27,9 @@ These are motion/art-direction references, not evidence about website budgets. H
 
 ## Latest pass status
 
-The owner applied the first sunlit-hero patch to `Dev` as `004d298`. A second pass now builds on that exact version: an original, interactive Three.js miniature studio with animated bears, a pencil heart trace, and day/evening lighting. The original fluffy illustration is used on valid room-link invitation pages and remains the main hero’s graphics/loading fallback. Local browser checks cover rendering, motion lifecycle, actual context loss/restoration and the solo drawing/export flow.
+The owner applied the hero passes to `Dev` at `258191a`. The approved cream-teddy face now has a continuous seated lower body. A web asset replaces the procedural sphere bears in the miniature room; cream and caramel share one approximately 4 MB model download. The original fluffy art remains on room-link invitations and as fallback. See `PLUSH_BEAR_ASSET.md` for the source, runtime contract and limits.
 
-The personal GitHub connection still rejects writes with HTTP 403 `Resource not accessible by integration`. Do not claim this second pass reached remote `Dev` or production. Apply the saved second-pass patch to the latest compatible `Dev` or repair write access, then verify the remote head before continuing. Preserve the paused automation status until the write blocker is resolved.
+This pass is prepared incrementally against that remote head. Confirm push status in the accompanying delivery before assuming remote `Dev` changed; never merge or promote production automatically. Keep the previously paused recurring task paused while repository write access is blocked.
 
 ## Current verification priorities
 
