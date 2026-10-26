@@ -149,7 +149,7 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
           </form>
           <div className="welcome-whisper"><Heart size={14} fill="currentColor" /> The sweetest things are made together.</div>
         </section>
-        <HeroStage theme={theme} />
+        <HeroStage key={room ? 'invitation' : 'home'} theme={theme} illustrated={Boolean(room)} />
       </main>
       <footer className="welcome-footer"><span>Made for slow evenings, soft smiles, and messy doodles.</span><span>♡</span></footer>
     </div>

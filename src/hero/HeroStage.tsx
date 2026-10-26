@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { Heart, Pause, PencilLine, Play, Sparkles } from 'lucide-react';
+import { Heart, Moon, Pause, PencilLine, Play, Sparkles, Sun } from 'lucide-react';
 import { HeroAtmosphere } from './HeroAtmosphere';
 
 /** The illustrated welcome scene never shares state with a drawing room. */
-export function HeroStage({ theme }: { theme: 'rose' | 'sage' }) {
+export function HeroStage({ theme, illustrated = false }: { theme: 'rose' | 'sage'; illustrated?: boolean }) {
   const stageRef = useRef<HTMLElement>(null);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [paused, setPaused] = useState(false);
   const [love, setLove] = useState(0);
+  const [ready, setReady] = useState(false);
+  const [night, setNight] = useState(false);
   const moving = !paused && !reducedMotion;
 
   function reset() {
@@ -39,12 +41,12 @@ export function HeroStage({ theme }: { theme: 'rose' | 'sage' }) {
 
   return (
     <section className="hero-world" aria-label="Two cuddly bears drawing together in a cozy studio" ref={stageRef}
-      data-motion={moving ? 'on' : 'off'} onPointerMove={move} onPointerLeave={reset}>
+      data-variant={illustrated ? 'invitation' : 'miniature'} data-scene={ready && !illustrated ? 'ready' : 'loading'} data-night={night} data-motion={moving ? 'on' : 'off'} onPointerMove={move} onPointerLeave={reset}>
       <div className="hero-environment" aria-hidden="true" />
       <div className="hero-world-halo" aria-hidden="true" />
       <div className="hero-sunbeams" aria-hidden="true" />
       <div className="hero-environment-light" aria-hidden="true" />
-      <div className="world-top-label"><Heart size={13} fill="currentColor" /> MADE FOR TWO</div>
+      <div className="world-top-label"><Heart size={13} fill="currentColor" /> {illustrated ? 'MADE FOR TWO' : 'OUR LITTLE ART STUDIO'}</div>
       <div className="hero-bear-shadow" aria-hidden="true" />
       <div className="hero-bears-depth">
         <img className="hero-plush-bears" src="/hero/cuddle-bears.webp" width={1593} height={939}
@@ -54,16 +56,22 @@ export function HeroStage({ theme }: { theme: 'rose' | 'sage' }) {
       <div className="world-sticky-note" aria-hidden="true"><PencilLine size={15} /> you + me<br /><strong>make magic ♡</strong></div>
       <div className="hero-css-sparkle sparkle-one" aria-hidden="true">✧</div>
       <div className="hero-css-sparkle sparkle-two" aria-hidden="true">✧</div>
-      <HeroAtmosphere theme={theme} moving={moving} />
+      <span className="hero-scene-hint" aria-hidden="true">move a little. send a little love.</span>
+      {!illustrated && <HeroAtmosphere theme={theme} moving={moving} night={night} onReady={setReady} />}
       {love > 0 && <div className="hero-love-bloom" key={love} aria-hidden="true">
         {Array.from({ length: 5 }, (_, i) => <Heart key={i} size={22} fill="currentColor" />)}
       </div>}
       <div className="hero-scene-footer">
-        <div className="world-greeting"><Sparkles size={16} /><span>our little corner of the world</span></div>
+        <div className="world-greeting"><Sparkles size={16} /><span>{ready ? 'our little world, just us' : 'our little corner of the world'}</span></div>
         <button type="button" className="hero-love-button" onClick={sendLove} aria-label="Send the bears a little love">
           <Heart size={17} fill={love ? 'currentColor' : 'none'} /><span>a little love</span>
         </button>
       </div>
+      {ready && <button type="button" className="hero-light-button" onClick={() => setNight(value => !value)}
+        aria-label={night ? 'Bring back the sunshine' : 'Make it a cozy evening'} aria-pressed={night}
+        title={night ? 'Bring back the sunshine' : 'Make it a cozy evening'}>
+        {night ? <Sun size={16} /> : <Moon size={16} />}
+      </button>}
       {!reducedMotion && <button type="button" className="hero-motion-button" onClick={() => setPaused((value) => !value)}
         aria-label={paused ? 'Play scene animation' : 'Pause scene animation'} title={paused ? 'Play animation' : 'Pause animation'}>
         {paused ? <Play size={14} /> : <Pause size={14} />}

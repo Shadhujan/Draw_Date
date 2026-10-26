@@ -226,6 +226,33 @@ a { color: inherit; }
 @keyframes love-bloom { 0% { opacity: 0; transform: translate(0, 0) scale(.5); } 16% { opacity: .9; }
   100% { opacity: 0; transform: translate(var(--love-x), var(--love-y)) scale(1.1); } }
 
+/* The illustration gives way to a real, softly lit keepsake miniature. */
+.hero-world[data-scene='ready'] { background: radial-gradient(ellipse at 45% 30%, #fff7e8, #f2d9cb 85%); transition: background .8s; }
+.app-theme[data-theme='sage'] .hero-world[data-scene='ready'] { background: radial-gradient(ellipse at 45% 30%, #faf9e9, #dce5cf 85%); }
+.hero-world[data-scene='ready'][data-night='true'] { background: radial-gradient(ellipse at 42% 35%, #e3c9b8, #bda6b2 90%); }
+.app-theme[data-theme='sage'] .hero-world[data-scene='ready'][data-night='true'] { background: radial-gradient(ellipse at 42% 35%, #dfd9ba, #adbfae 90%); }
+.hero-light-button { position: absolute; z-index: 8; top: 18%; right: 9%; width: 36px; height: 36px; display: grid; place-items: center;
+  padding: 0; border: 1px solid #fff9eeb0; border-radius: 50%; color: #79535d; background: #fffcf2c9;
+  backdrop-filter: blur(10px); transition: transform .3s, background .3s; }
+.hero-light-button:hover { transform: rotate(-15deg); background: #fffdf9; }
+.hero-light-button:active { transform: scale(.94); }
+.hero-world[data-scene='ready'] .hero-environment,
+.hero-world[data-scene='ready'] .hero-bears-depth,
+.hero-world[data-scene='ready'] .hero-bear-shadow,
+.hero-world[data-scene='ready'] .world-sticky-note { opacity: 0; pointer-events: none; }
+.hero-environment, .hero-bears-depth, .hero-bear-shadow, .world-sticky-note { transition: opacity .7s ease, transform .8s cubic-bezier(.16,1,.3,1); }
+.hero-atmosphere { opacity: 0; transition: opacity .9s ease; }
+.hero-atmosphere[data-ready='true'] { opacity: 1; }
+.hero-world[data-scene='ready'] .hero-sunbeams { opacity: .07; }
+.hero-world[data-scene='ready']::after { box-shadow: inset 0 0 0 1px #ffffff66, inset 0 -20px 45px #a46d7512; }
+.hero-scene-hint { position: absolute; z-index: 8; bottom: 13%; left: 0; right: 0; text-align: center;
+  font: italic 12px Georgia, serif; color: #89665c; opacity: 0; pointer-events: none; transition: opacity .6s; }
+.hero-world[data-scene='ready'] .hero-scene-hint { opacity: .8; }
+.hero-world[data-motion='off'] .hero-scene-hint { opacity: 0; }
+.hero-world[data-scene='ready'] .sparkle-one { top: 27%; left: 13%; }
+.hero-world[data-scene='ready'] .sparkle-two { right: 12%; bottom: 25%; }
+@media (max-width: 520px) { .hero-scene-hint { font-size: 10px; bottom: 15%; } }
+
 /* Studio: the canvas is the hero. Tools and prompts remain secondary. */
 .studio-screen { min-height: 100dvh; background: radial-gradient(ellipse 58% 65% at 100% 0%, var(--page-alt), transparent 70%), var(--page); }
 .studio-header { display: flex; justify-content: space-between; align-items: center; gap: 22px; width: min(calc(100% - 64px), 1450px); min-height: 94px; margin: 0 auto; }

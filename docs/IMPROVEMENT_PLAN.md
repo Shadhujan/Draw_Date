@@ -27,7 +27,9 @@ These are motion/art-direction references, not evidence about website budgets. H
 
 ## Latest pass status
 
-The sunlit hero is built and locally verified. GitHub writes were rejected with HTTP 403 `Resource not accessible by integration`; the commit has not reached remote `Dev`. Fix the connection's repository write access before claiming or attempting a deployment. A saved patch is provided with this review so the work can be recovered if the local checkout expires.
+The owner applied the first sunlit-hero patch to `Dev` as `004d298`. A second pass now builds on that exact version: an original, interactive Three.js miniature studio with animated bears, a pencil heart trace, and day/evening lighting. The original fluffy illustration is used on valid room-link invitation pages and remains the main hero’s graphics/loading fallback. Local browser checks cover rendering, motion lifecycle, actual context loss/restoration and the solo drawing/export flow.
+
+The personal GitHub connection still rejects writes with HTTP 403 `Resource not accessible by integration`. Do not claim this second pass reached remote `Dev` or production. Apply the saved second-pass patch to the latest compatible `Dev` or repair write access, then verify the remote head before continuing. Preserve the paused automation status until the write blocker is resolved.
 
 ## Current verification priorities
 
