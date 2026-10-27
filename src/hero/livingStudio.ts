@@ -192,9 +192,11 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
   let currentTheme = '';
   let drawingProgress = -1;
   let lastProgress = 1;
+  let entryDrawStart = -1;
 
   return {
     world,
+    paper,
     love(time: number) { loveAt = time; },
     theme(theme: 'rose' | 'sage', evening: number) {
       sky.color.copy(skyDay).lerp(skyNight, evening);
@@ -207,7 +209,7 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
       rim.color.setHex(theme === 'sage' ? 0xd3ddc5 : 0xf6d6c5);
       heartMaterial.color.setHex(theme === 'sage' ? 0xa9c6a2 : 0xeaa6b9);
     },
-    update(time: number, px: number, py: number, moving: boolean) {
+    update(time: number, px: number, py: number, moving: boolean, entering?: number) {
       const t = time;
       const age = moving ? time - loveAt : 100;
       const reaction = age >= 0 && age < 2.6 ? Math.sin(Math.min(age / 2.6, 1) * Math.PI) : 0;
@@ -216,12 +218,15 @@ export function createLivingStudio(T: any, own: <R extends { dispose(): void }>(
         bear.head.position.y = bear.headY + Math.sin(t * 1.7 + i * .6) * .0015;
         bear.head.rotation.z = bear.tilt + Math.sin(t * .65 + i) * .025 + (i ? -1 : 1) * reaction * .10;
         bear.head.rotation.y = px * .07;
-        bear.head.rotation.x = py * .025;
+        bear.head.rotation.x = py * .025 + (entering ?? 0) * .12;
         bear.arms.forEach((arm: any, j: number) => {
-          if (arm) arm.rotation.x = -.85 + Math.sin(t * 1.6 + i + j) * .035 - reaction * .10;
+          if (arm) arm.rotation.x = -.85 + Math.sin(t * 1.6 + i + j) * .035 - reaction * .10 - (entering ?? 0) * .10;
         });
       });
-      const progress = moving ? Math.min(1, (t % 12) / 5.5) : lastProgress;
+      if (entering === undefined) entryDrawStart = -1;
+      else if (entryDrawStart < 0) entryDrawStart = lastProgress;
+      const progress = entering !== undefined ? entryDrawStart + (1 - entryDrawStart) * Math.min(1, entering / .7)
+        : moving ? Math.min(1, (t % 12) / 5.5) : lastProgress;
       lastProgress = progress;
       const indices = Math.floor(progress * 120) * 36;
       if (indices !== drawingProgress) { drawingGeometry.setDrawRange(0, indices); drawingProgress = indices; }

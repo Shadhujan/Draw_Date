@@ -7,9 +7,44 @@
     <meta name="description" content="Draw Date is a cozy little space to draw together. Two people, one canvas, lots of love." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Draw Date — A little closer, one doodle at a time</title>
+    <style>
+      html,body{margin:0;min-height:100%;background:#fff8f6}html[data-boot-theme=sage],html[data-boot-theme=sage] body{background:#f7faf4}
+      .boot-screen{--boot-ink:#ac5376;--boot-wash:#f7e1e8;min-height:100dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:radial-gradient(ellipse at 50% 38%,#fffdf8,transparent 70%),#fff8f6;color:#6d515e;font-family:ui-rounded,'Trebuchet MS',system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
+      [data-boot-theme=sage] .boot-screen{--boot-ink:#4c795b;--boot-wash:#e0eddc;background:radial-gradient(ellipse at 50% 38%,#fffdf8,transparent 70%),#f7faf4;color:#526958}
+      .boot-sketch{width:142px;height:142px;border-radius:42px;background:var(--boot-wash);display:grid;place-items:center;transform:rotate(-4deg);box-shadow:inset 0 1px #fff,0 12px 38px #ad7f8d12}
+      .boot-sketch svg{width:112px;height:112px;color:var(--boot-ink);transform:rotate(4deg)}.boot-line{stroke-dasharray:280;stroke-dashoffset:280;animation:boot-draw 2.2s ease-in-out infinite}.boot-pencil{transform-origin:70px 60px;animation:boot-pencil 2.2s ease-in-out infinite}
+      .boot-screen strong{font-size:25px;letter-spacing:-1px;color:var(--boot-ink);margin-top:8px}.boot-screen p{font-size:13px;line-height:1.6;margin:0;max-width:280px}.boot-retry{display:none;color:var(--boot-ink);padding:12px;font-size:13px;font-weight:bold}.boot-screen[data-failed=true] .boot-retry{display:block}.boot-screen[data-failed=true] svg *{animation:none}.boot-screen[data-failed=true] .boot-line{stroke-dashoffset:0}
+      @keyframes boot-draw{0%,12%{stroke-dashoffset:280}68%,100%{stroke-dashoffset:0}}@keyframes boot-pencil{0%,100%{transform:translate(-9px,5px) rotate(-8deg)}45%{transform:translate(3px,-5px) rotate(4deg)}75%{transform:translate(0,0) rotate(0)}}
+      @media(prefers-reduced-motion:reduce){.boot-sketch svg *{animation:none}.boot-line{stroke-dashoffset:0}}
+    </style>
+    <script>
+      try { document.documentElement.dataset.bootTheme = localStorage.getItem('draw-date-theme') === 'sage' ? 'sage' : 'rose'; } catch (_) {}
+      window.drawDateBootFailure = function () {
+        var screen = document.getElementById('boot-screen');
+        if (!screen) return;
+        screen.dataset.failed = 'true';
+        screen.setAttribute('role', 'alert');
+        document.getElementById('boot-message').textContent = 'Our pencils got a little tangled. Please reload to open your studio.';
+      };
+      window.addEventListener('error', function (event) {
+        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) window.drawDateBootFailure();
+      }, true);
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="boot-screen" id="boot-screen" role="status" aria-live="polite">
+        <div class="boot-sketch" aria-hidden="true"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path class="boot-line" d="M60 92C49 82 25 66 26 47C27 27 50 24 60 42C70 24 93 27 94 47C95 66 71 82 60 92Z"/>
+          <g class="boot-pencil"><path d="M73 39L86 26L96 36L83 49L73 53Z" fill="#fffaf3"/><path d="M73 53L76 45L83 49M86 26L96 36M83 30L92 39"/></g>
+          <path d="M25 93h13m-7-6v12M93 76h9m-4-4v8" opacity=".55"/>
+        </svg></div>
+        <strong>draw date</strong>
+        <p id="boot-message">Setting out our pencils, just for two…</p>
+        <a class="boot-retry" href="">Reload the studio</a>
+        <noscript><p>Turn on JavaScript to open your drawing date.</p></noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
