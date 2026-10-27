@@ -1,16 +1,81 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { Heart, Moon, Pause, PencilLine, Play, Sparkles, Sun } from 'lucide-react';
 import { HeroAtmosphere } from './HeroAtmosphere';
+import { PaperHeart } from './PaperHeart';
+import type { HeroCameraHandle, PaperPortal } from './entryMotion';
+import '../PaperArrival.css';
+
+export type HeroStageHandle = { enter: () => Promise<PaperPortal | null>; cancelEntry: () => void };
 
 /** The illustrated welcome scene never shares state with a drawing room. */
-export function HeroStage({ theme, illustrated = false }: { theme: 'rose' | 'sage'; illustrated?: boolean }) {
+export const HeroStage = forwardRef<HeroStageHandle, { theme: 'rose' | 'sage'; illustrated?: boolean }>(function HeroStage({ theme, illustrated = false }, ref) {
   const stageRef = useRef<HTMLElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+  const camera = useRef<HeroCameraHandle>(null);
+  const fallbackPaper = useRef<HTMLDivElement>(null);
+  const animations = useRef<Animation[]>([]);
+  const generation = useRef(0);
+  const [entering, setEntering] = useState(false);
+  const [showPaper, setShowPaper] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [paused, setPaused] = useState(false);
   const [love, setLove] = useState(0);
   const [ready, setReady] = useState(false);
   const [night, setNight] = useState(false);
   const moving = !paused && !reducedMotion;
+  const motion = useRef(moving); motion.current = moving;
+
+  function cancelEntry() {
+    generation.current++;
+    animations.current.forEach((animation) => animation.cancel()); animations.current = [];
+    camera.current?.resetCamera();
+    const stage = stageRef.current;
+    if (stage) { stage.removeAttribute('data-entering'); stage.style.removeProperty('--entry-left'); stage.style.removeProperty('--entry-top'); stage.style.removeProperty('--entry-width'); stage.style.removeProperty('--entry-height'); }
+    if (slotRef.current) slotRef.current.style.removeProperty('min-height');
+    setEntering(false); setShowPaper(false);
+  }
+
+  useEffect(() => () => { generation.current++; animations.current.forEach((animation) => animation.cancel()); }, []);
+  useEffect(() => { if (!moving) animations.current.forEach((animation) => { try { animation.finish(); } catch { /* An animation may have already ended. */ } }); }, [moving]);
+
+  useImperativeHandle(ref, () => ({ cancelEntry, async enter() {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const original = stage.getBoundingClientRect();
+    if (!motion.current) return { left: original.left, top: original.top, width: original.width, height: original.height, rotation: 0, reduced: true };
+    const token = ++generation.current;
+    slotRef.current?.style.setProperty('min-height', `${original.height}px`);
+    const scale = Math.min((innerWidth - 24) / original.width, (innerHeight - 48) / original.height, 1.5);
+    const width = original.width * scale, height = original.height * scale;
+    const left = (innerWidth - width) / 2, top = (innerHeight - height) / 2;
+    stage.style.setProperty('--entry-left', `${left}px`); stage.style.setProperty('--entry-top', `${top}px`);
+    stage.style.setProperty('--entry-width', `${width}px`); stage.style.setProperty('--entry-height', `${height}px`);
+    stage.dataset.entering = 'true';
+    setEntering(true);
+    const expand = stage.animate([
+      { transform: `translate(${original.left - left}px, ${original.top - top}px) scale(${original.width / width})`, borderRadius: getComputedStyle(stage).borderRadius },
+      { transform: 'translate(0, 0) scale(1)', borderRadius: '28px' },
+    ], { duration: 750, easing: 'cubic-bezier(.37,0,.63,1)', fill: 'forwards' });
+    animations.current.push(expand);
+    await expand.finished.catch(() => {});
+    if (token !== generation.current) return null;
+    const paper = motion.current ? await camera.current?.approachPaper() : null;
+    if (token !== generation.current) return null;
+    if (paper) return paper;
+    // The paper must exist before measuring/animating it; a single RAF can precede React's commit.
+    flushSync(() => setShowPaper(true));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (token !== generation.current) return null;
+    const element = fallbackPaper.current;
+    if (!element) return null;
+    const reveal = element.animate([{ opacity: 0, transform: 'translateY(8px) rotate(-3deg) scale(.94)' }, { opacity: 1, transform: 'translateY(0) rotate(0) scale(1)' }], { duration: motion.current ? 1400 : 1, easing: 'cubic-bezier(.37,0,.63,1)', fill: 'forwards' });
+    animations.current.push(reveal);
+    await reveal.finished.catch(() => {});
+    if (token !== generation.current) return null;
+    const bounds = element.getBoundingClientRect();
+    return { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, rotation: 0, reduced: !motion.current };
+  } }));
 
   function reset() {
     stageRef.current?.style.setProperty('--pointer-x', '0px');
@@ -40,6 +105,8 @@ export function HeroStage({ theme, illustrated = false }: { theme: 'rose' | 'sag
   }
 
   return (
+    <div className="hero-stage-slot" ref={slotRef}>
+    {entering && <div className="hero-entry-backdrop"><span role="status">A little space, just for you two…</span></div>}
     <section className="hero-world" aria-label="Two cuddly bears drawing together in a cozy studio" ref={stageRef}
       data-variant={illustrated ? 'invitation' : 'miniature'} data-scene={ready && !illustrated ? 'ready' : 'loading'} data-night={night} data-motion={moving ? 'on' : 'off'} onPointerMove={move} onPointerLeave={reset}>
       <div className="hero-environment" aria-hidden="true" />
@@ -57,7 +124,8 @@ export function HeroStage({ theme, illustrated = false }: { theme: 'rose' | 'sag
       <div className="hero-css-sparkle sparkle-one" aria-hidden="true">✧</div>
       <div className="hero-css-sparkle sparkle-two" aria-hidden="true">✧</div>
       <span className="hero-scene-hint" aria-hidden="true">move a little. send a little love.</span>
-      {!illustrated && <HeroAtmosphere theme={theme} moving={moving} night={night} onReady={setReady} />}
+      {!illustrated && <HeroAtmosphere ref={camera} theme={theme} moving={moving} night={night} onReady={setReady} />}
+      {showPaper && <div className="hero-entry-paper" ref={fallbackPaper}><PaperHeart pencil /></div>}
       {love > 0 && <div className="hero-love-bloom" key={love} aria-hidden="true">
         {Array.from({ length: 5 }, (_, i) => <Heart key={i} size={22} fill="currentColor" />)}
       </div>}
@@ -78,5 +146,6 @@ export function HeroStage({ theme, illustrated = false }: { theme: 'rose' | 'sag
       </button>}
       <span className="visually-hidden" role="status">{love > 0 ? 'A little love for you both ♡' : ''}</span>
     </section>
+    </div>
   );
-}
+});
