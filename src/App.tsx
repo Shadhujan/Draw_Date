@@ -102,6 +102,7 @@ function Welcome({ room, theme, onThemeChange, onStart }: {
 }
 
 export default function App() {
+  useEffect(() => { window.drawDateBoot?.ready(); }, []);
   const initialRoom = new URLSearchParams(window.location.search).get('room');
   const [roomId, setRoomId] = useState<string | null>(null);
   const [name, setName] = useState('');

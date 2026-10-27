@@ -8,43 +8,167 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Draw Date — A little closer, one doodle at a time</title>
     <style>
-      html,body{margin:0;min-height:100%;background:#fff8f6}html[data-boot-theme=sage],html[data-boot-theme=sage] body{background:#f7faf4}
-      .boot-screen{--boot-ink:#ac5376;--boot-wash:#f7e1e8;min-height:100dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:radial-gradient(ellipse at 50% 38%,#fffdf8,transparent 70%),#fff8f6;color:#6d515e;font-family:ui-rounded,'Trebuchet MS',system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
-      [data-boot-theme=sage] .boot-screen{--boot-ink:#4c795b;--boot-wash:#e0eddc;background:radial-gradient(ellipse at 50% 38%,#fffdf8,transparent 70%),#f7faf4;color:#526958}
+      html,body{margin:0;min-height:100%;background:#fff8f6}html[data-boot-theme=sage],html[data-boot-theme=sage] body{background:#f7faf4}html[data-booting] body{overflow:hidden}
+      .boot-screen{--boot-ink:#a34c6e;--boot-wash:#f5dee6;--boot-muted:#80656e;position:fixed;inset:0;z-index:1000;min-height:100dvh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:radial-gradient(ellipse at 50% 39%,#fffefb 12%,transparent 68%),#fff8f6;color:#6d515e;font-family:ui-rounded,'Trebuchet MS',system-ui,sans-serif;text-align:center;padding:24px 20px max(28px,env(safe-area-inset-bottom));box-sizing:border-box;transition:opacity .3s ease,transform .3s ease}
+      [data-boot-theme=sage] .boot-screen{--boot-ink:#4c7254;--boot-wash:#e0eddc;--boot-muted:#5e7461;background:radial-gradient(ellipse at 50% 39%,#fffefb 12%,transparent 68%),#f7faf4;color:#526958}
+      .boot-screen[data-state=leaving]{opacity:0;transform:translateY(-8px);pointer-events:none}.boot-eyebrow{font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--boot-muted);margin-bottom:4px}
+      .boot-illustration{position:relative;width:min(420px,100%);aspect-ratio:5/4;display:grid;place-items:center;isolation:isolate}.boot-ground{position:absolute;bottom:8%;left:13%;width:74%;height:8%;border-radius:50%;background:var(--boot-wash);opacity:.55;filter:blur(5px);z-index:-1}
       .boot-sketch{width:142px;height:142px;border-radius:42px;background:var(--boot-wash);display:grid;place-items:center;transform:rotate(-4deg);box-shadow:inset 0 1px #fff,0 12px 38px #ad7f8d12}
       .boot-sketch svg{width:112px;height:112px;color:var(--boot-ink);transform:rotate(4deg)}.boot-line{stroke-dasharray:280;stroke-dashoffset:280;animation:boot-draw 2.2s ease-in-out infinite}.boot-pencil{transform-origin:70px 60px;animation:boot-pencil 2.2s ease-in-out infinite}
-      .boot-screen strong{font-size:25px;letter-spacing:-1px;color:var(--boot-ink);margin-top:8px}.boot-screen p{font-size:13px;line-height:1.6;margin:0;max-width:280px}.boot-retry{display:none;color:var(--boot-ink);padding:12px;font-size:13px;font-weight:bold}.boot-screen[data-failed=true] .boot-retry{display:block}.boot-screen[data-failed=true] svg *{animation:none}.boot-screen[data-failed=true] .boot-line{stroke-dashoffset:0}
-      @keyframes boot-draw{0%,12%{stroke-dashoffset:280}68%,100%{stroke-dashoffset:0}}@keyframes boot-pencil{0%,100%{transform:translate(-9px,5px) rotate(-8deg)}45%{transform:translate(3px,-5px) rotate(4deg)}75%{transform:translate(0,0) rotate(0)}}
-      @media(prefers-reduced-motion:reduce){.boot-sketch svg *{animation:none}.boot-line{stroke-dashoffset:0}}
+      .boot-sprite{position:absolute;inset:0;visibility:hidden;opacity:0;transition:opacity .18s ease;background-repeat:no-repeat;background-size:400% 200%;background-position:0 0;animation:boot-frames 1s steps(1,end) infinite}
+      [data-scene=cuddle] .boot-sprite{animation-duration:1.6s}[data-scene=flowers] .boot-sprite{animation-duration:1.8s}.boot-screen[data-art=ready] .boot-sprite{visibility:visible;opacity:1}.boot-screen[data-art=ready] .boot-sketch{visibility:hidden}
+      .boot-heart{position:absolute;width:18px;height:18px;fill:#e58a9f;opacity:0;animation:boot-love 2.7s ease-out infinite;pointer-events:none}.boot-heart.one{left:22%;top:35%;animation-delay:.2s}.boot-heart.two{left:45%;top:22%;width:12px;height:12px;animation-delay:1.1s}.boot-heart.three{right:20%;top:36%;width:15px;height:15px;animation-delay:1.8s}.boot-screen:not([data-art=ready]) .boot-heart{display:none}
+      .boot-screen strong{font-size:38px;font-weight:700;letter-spacing:-2px;line-height:1.1;color:var(--boot-ink)}.boot-screen p{font-size:13px;line-height:1.7;margin:0;max-width:320px}.boot-screen .boot-caption{font-size:15px;color:var(--boot-muted)}.boot-status{display:flex;align-items:center;gap:8px;margin-top:14px;color:var(--boot-muted)}.boot-status::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;animation:boot-breathe 1.4s ease-in-out infinite}
+      .boot-skip{position:absolute;bottom:max(22px,env(safe-area-inset-bottom));border:0;border-radius:999px;background:transparent;color:var(--boot-ink);font:600 12px ui-rounded,'Trebuchet MS',system-ui,sans-serif;padding:12px 20px;min-height:44px;cursor:pointer}.boot-skip:hover{background:var(--boot-wash)}.boot-skip:focus-visible,.boot-retry:focus-visible{outline:2px solid var(--boot-ink);outline-offset:3px}.boot-skip:disabled{cursor:default;color:var(--boot-muted)}.boot-screen [hidden]{display:none!important}
+      .boot-retry{display:none;color:var(--boot-ink);padding:12px;font-size:13px;font-weight:bold}.boot-screen[data-failed=true] .boot-retry,.boot-screen[data-slow=true] .boot-retry{display:block}.boot-screen[data-failed=true] .boot-skip{display:none}.boot-screen[data-failed=true] .boot-status::before{display:none}.boot-screen[data-failed=true] .boot-line{stroke-dashoffset:0}.boot-screen[data-failed=true] .boot-heart{display:none}
+      .boot-screen[data-paused=true] *,.boot-screen[data-paused=true] *::before,.boot-screen[data-failed=true] *,.boot-screen[data-failed=true] *::before{animation-play-state:paused!important}
+      @keyframes boot-frames{0%,100%{background-position:0 0}12.5%{background-position:33.333333% 0}25%{background-position:66.666667% 0}37.5%{background-position:100% 0}50%{background-position:0 100%}62.5%{background-position:33.333333% 100%}75%{background-position:66.666667% 100%}87.5%{background-position:100% 100%}}
+      @keyframes boot-love{0%{opacity:0;transform:translate(0,10px) rotate(-12deg) scale(.6)}20%{opacity:.65}80%,100%{opacity:0;transform:translate(12px,-45px) rotate(14deg) scale(1)}}@keyframes boot-breathe{50%{opacity:.35}}@keyframes boot-draw{0%,12%{stroke-dashoffset:280}68%,100%{stroke-dashoffset:0}}@keyframes boot-pencil{0%,100%{transform:translate(-9px,5px) rotate(-8deg)}45%{transform:translate(3px,-5px) rotate(4deg)}75%{transform:translate(0,0) rotate(0)}}
+      @media(max-height:620px){.boot-screen{gap:10px}.boot-illustration{width:min(310px,48vh,100%)}.boot-eyebrow{display:none}.boot-screen strong{font-size:30px}.boot-status{margin-top:4px}.boot-skip{bottom:8px}}
+      @media(max-height:440px){.boot-screen{gap:8px;padding:16px 60px}.boot-illustration{width:min(220px,48vh,100%)}.boot-screen strong{font-size:24px}.boot-screen .boot-caption{font-size:13px}.boot-status{margin-top:0}.boot-skip{right:12px;bottom:12px}}
+      @media(max-height:440px){.boot-screen[data-failed=true] .boot-illustration,.boot-screen[data-failed=true] .boot-caption,.boot-screen[data-slow=true] .boot-illustration,.boot-screen[data-slow=true] .boot-caption{display:none}}
+      @media(prefers-reduced-motion:reduce){.boot-screen{transition:none}.boot-screen *,.boot-screen *::before{animation:none!important;transition:none!important}.boot-line{stroke-dashoffset:0}.boot-heart{display:none}.boot-screen[data-state=leaving]{transform:none}}
     </style>
     <script>
       try { document.documentElement.dataset.bootTheme = localStorage.getItem('draw-date-theme') === 'sage' ? 'sage' : 'rose'; } catch (_) {}
-      window.drawDateBootFailure = function () {
-        var screen = document.getElementById('boot-screen');
-        if (!screen) return;
-        screen.dataset.failed = 'true';
-        screen.setAttribute('role', 'alert');
-        document.getElementById('boot-message').textContent = 'Our pencils got a little tangled. Please reload to open your studio.';
-      };
+      document.documentElement.dataset.booting = 'true';
+      window.drawDateBootFailure = function () { if (window.drawDateBoot) window.drawDateBoot.fail(); };
       window.addEventListener('error', function (event) {
-        if (event.target && (event.target.tagName === 'SCRIPT' || event.target.tagName === 'LINK')) window.drawDateBootFailure();
+        var target = event.target;
+        if (target && (target.tagName === 'SCRIPT' || (target.tagName === 'LINK' && (target.rel === 'stylesheet' || target.rel === 'modulepreload')))) window.drawDateBootFailure();
       }, true);
     </script>
   </head>
   <body>
-    <div id="root">
-      <main class="boot-screen" id="boot-screen" role="status" aria-live="polite">
-        <div class="boot-sketch" aria-hidden="true"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <main class="boot-screen" id="boot-screen" aria-label="Opening Draw Date">
+      <span class="boot-eyebrow">a tiny moment for us</span>
+      <div class="boot-illustration" aria-hidden="true">
+        <div class="boot-ground"></div>
+        <div class="boot-sketch"><svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <path class="boot-line" d="M60 92C49 82 25 66 26 47C27 27 50 24 60 42C70 24 93 27 94 47C95 66 71 82 60 92Z"/>
           <g class="boot-pencil"><path d="M73 39L86 26L96 36L83 49L73 53Z" fill="#fffaf3"/><path d="M73 53L76 45L83 49M86 26L96 36M83 30L92 39"/></g>
           <path d="M25 93h13m-7-6v12M93 76h9m-4-4v8" opacity=".55"/>
         </svg></div>
-        <strong>draw date</strong>
-        <p id="boot-message">Setting out our pencils, just for two…</p>
-        <a class="boot-retry" href="">Reload the studio</a>
-        <noscript><p>Turn on JavaScript to open your drawing date.</p></noscript>
-      </main>
-    </div>
+        <div class="boot-sprite"></div>
+        <svg class="boot-heart one" viewBox="0 0 24 24"><path d="M12 21C8 17 1 12 2 7C3 1 9 1 12 6C15 1 21 1 22 7C23 12 16 17 12 21Z"/></svg>
+        <svg class="boot-heart two" viewBox="0 0 24 24"><path d="M12 21C8 17 1 12 2 7C3 1 9 1 12 6C15 1 21 1 22 7C23 12 16 17 12 21Z"/></svg>
+        <svg class="boot-heart three" viewBox="0 0 24 24"><path d="M12 21C8 17 1 12 2 7C3 1 9 1 12 6C15 1 21 1 22 7C23 12 16 17 12 21Z"/></svg>
+      </div>
+      <strong>draw date</strong>
+      <p class="boot-caption" id="boot-caption">A little closer, one doodle at a time.</p>
+      <div class="boot-status" role="status" aria-live="polite"><p id="boot-message">Opening our little world…</p></div>
+      <a class="boot-retry" href="">Reload the studio</a>
+      <button class="boot-skip" type="button" hidden>Skip intro <span aria-hidden="true">↗</span></button>
+      <noscript><p>Turn on JavaScript to open your drawing date.</p></noscript>
+    </main>
+    <div id="root" inert aria-hidden="true"></div>
+    <script>
+      (function () {
+        var screen = document.getElementById('boot-screen');
+        var root = document.getElementById('root');
+        var skip = screen.querySelector('.boot-skip');
+        var message = document.getElementById('boot-message');
+        var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+        var scenes = [
+          { id: 'chase', caption: 'Love always catches up.' },
+          { id: 'cuddle', caption: 'A little closer, before we draw.' },
+          { id: 'flowers', caption: 'Something sweet, just for you.' }
+        ];
+        var last = '';
+        try { last = sessionStorage.getItem('draw-date-startup-scene') || ''; } catch (_) {}
+        var choices = scenes.filter(function (scene) { return scene.id !== last; });
+        var random = Math.random();
+        try { random = crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296; } catch (_) {}
+        var scene = choices[Math.floor(random * choices.length)];
+        try { sessionStorage.setItem('draw-date-startup-scene', scene.id); } catch (_) {}
+        screen.dataset.scene = scene.id;
+        document.getElementById('boot-caption').textContent = scene.caption;
+        var appReady = false;
+        var failed = false;
+        var finished = false;
+        var restoreFocus = false;
+        var deadline = performance.now() + (motion.matches ? 0 : 2400);
+        var timer;
+        var removalTimer;
+        var slowTimer;
+        var image = new Image();
+        var sprite = screen.querySelector('.boot-sprite');
+
+        function cleanUp() {
+          clearTimeout(timer);
+          clearTimeout(slowTimer);
+          image.onload = image.onerror = null;
+          motion.removeEventListener('change', onMotion);
+          document.removeEventListener('visibilitychange', onVisibility);
+          document.removeEventListener('keydown', onKey);
+          skip.removeEventListener('click', onSkip);
+        }
+        function finish() {
+          if (finished || failed) return;
+          finished = true;
+          cleanUp();
+          var returnFocus = restoreFocus || screen.contains(document.activeElement);
+          root.removeAttribute('inert');
+          root.removeAttribute('aria-hidden');
+          delete document.documentElement.dataset.booting;
+          screen.dataset.state = 'leaving';
+          screen.setAttribute('aria-hidden', 'true');
+          screen.inert = true;
+          if (returnFocus) document.getElementById('name')?.focus({ preventScroll: true });
+          removalTimer = setTimeout(function () {
+            screen.remove();
+            document.dispatchEvent(new Event('draw-date-startup-finished'));
+          }, motion.matches ? 0 : 320);
+        }
+        function maybeFinish() {
+          clearTimeout(timer);
+          if (!appReady || failed || finished || document.hidden) return;
+          var remaining = deadline - performance.now();
+          if (remaining <= 0) finish();
+          else timer = setTimeout(maybeFinish, remaining);
+        }
+        function onSkip() {
+          restoreFocus = true;
+          deadline = 0;
+          skip.disabled = true;
+          skip.textContent = 'Opening…';
+          maybeFinish();
+        }
+        function onKey(event) { if (event.key === 'Escape' && !failed && !finished) { event.preventDefault(); onSkip(); } }
+        function onMotion() { if (motion.matches) { deadline = 0; maybeFinish(); } }
+        function onVisibility() { screen.dataset.paused = String(document.hidden); if (!document.hidden) maybeFinish(); }
+        window.drawDateBoot = {
+          ready: function () { appReady = true; maybeFinish(); },
+          fail: function () {
+            if (finished) return;
+            failed = true;
+            cleanUp();
+            clearTimeout(removalTimer);
+            screen.dataset.failed = 'true';
+            message.textContent = 'Our pencils got a little tangled. Please reload to open your studio.';
+            screen.querySelector('.boot-status').setAttribute('role', 'alert');
+          }
+        };
+        skip.hidden = false;
+        skip.addEventListener('click', onSkip);
+        document.addEventListener('keydown', onKey);
+        document.addEventListener('visibilitychange', onVisibility);
+        motion.addEventListener('change', onMotion);
+        onVisibility();
+        slowTimer = setTimeout(function () {
+          if (!finished && !failed && !appReady) {
+            screen.dataset.slow = 'true';
+            message.textContent = 'Taking a little longer. Your studio is still loading…';
+          }
+        }, 12000);
+        image.onload = function () { if (!finished && !failed) screen.dataset.art = 'ready'; };
+        image.onerror = function () { if (!finished && !failed) { screen.dataset.art = 'fallback'; deadline = 0; maybeFinish(); } };
+        var source = '%BASE_URL%startup/' + scene.id + '-v1.webp';
+        image.fetchPriority = 'high';
+        sprite.style.backgroundImage = 'url("' + source + '")';
+        image.src = source;
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

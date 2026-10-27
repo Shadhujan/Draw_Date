@@ -226,8 +226,11 @@ export const HeroAtmosphere = forwardRef<HeroCameraHandle, { theme: Theme; movin
         host.removeAttribute('data-visible');
       });
     }
-    void start().catch(() => { release(); if (!disposed) readyCallback.current(false); });
-    return () => { disposed = true; release(); };
+    const launch = () => { void start().catch(() => { release(); if (!disposed) readyCallback.current(false); }); };
+    // Let the small startup animation finish before compiling the optional 3D scene.
+    if (document.documentElement.hasAttribute('data-booting')) document.addEventListener('draw-date-startup-finished', launch, { once: true });
+    else launch();
+    return () => { disposed = true; document.removeEventListener('draw-date-startup-finished', launch); release(); };
   }, []);
   return <canvas className="hero-atmosphere" ref={canvasRef} aria-hidden="true" />;
 });

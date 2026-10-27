@@ -4,7 +4,7 @@ Baseline: Dev `10887004c91db5a2699f820761acc987b64fc385`.
 
 ## What to expect
 
-Opening the page immediately presents a small pencil-and-heart drawing on a warm background. It uses inline HTML/SVG/CSS and the saved pink/sage theme; it does not need the app bundle, a font download or the teddy model. It disappears when the app is actually ready, without a minimum display delay. Script/stylesheet startup failures show a reload link.
+Opening the page immediately presents a small pencil-and-heart drawing on a warm background. It uses inline HTML/SVG/CSS and the saved pink/sage theme; it does not need the app bundle, a font download or the teddy model. The later bear-startup pass adds three randomized sprite scenes and a skippable 2.4-second intro while the app loads, with a still/no-wait reduced-motion mode. See `STARTUP_SCENES.md`. Script/stylesheet startup failures show a reload link.
 
 Focusing the nickname or start button preloads the drawing tools. A valid nickname starts the entrance while the module is prepared:
 
