@@ -12,7 +12,9 @@ Focusing the nickname or start button preloads the drawing tools. A valid nickna
 2. If its 3D renderer is ready, the live camera approaches the desk paper and the pencil finishes its existing heart.
 3. The projected paper rectangle moves into the actual drawing canvas; the remaining room controls appear around it.
 
-The expansion is about 340 ms, the camera approach 850 ms and the final paper handoff 580 ms. These animations overlap the real module load. An invitation or unavailable/loading renderer uses the original illustration with a small pencil/paper animation instead. Reduced-motion and paused scenes use a short fade.
+The expansion is about 750 ms, the camera approach 2.2 seconds and the final paper handoff 1.25 seconds: about 4.2 seconds for the full 3D entrance. The camera eases gently with a half-cosine curve and proportional magnification, avoiding the old sharp mid-motion zoom. The paper settles before dissolving and the room controls fade in at the same slower pace. These animations overlap the real module load. An invitation or unavailable/loading renderer uses the original illustration with a gentle 1.4-second pencil/paper reveal instead. Reduced-motion and paused scenes retain the short fade.
+
+The illustrated paper is committed synchronously before its bounds are measured. Waiting for a single animation frame did not guarantee a React commit and could skip the reveal and handoff on phones.
 
 A module failure or a studio request stalled for 15 seconds restores the usable form with its nickname. Late completion of a cancelled request cannot enter the room. Admission/network behavior inside the drawing room remains controlled by the existing room code.
 

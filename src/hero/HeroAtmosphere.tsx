@@ -105,8 +105,8 @@ export const HeroAtmosphere = forwardRef<HeroCameraHandle, { theme: Theme; movin
         if (!force && now - last < (mobile ? 33 : 25)) return;
         const delta = Math.min((now - last) / 1000, .06); last = now;
         if (approachStart !== null) {
-          const progress = settings.current.moving ? Math.min(1, (now - approachStart) / 850) : 1;
-          approach = progress < .5 ? 4 * progress ** 3 : 1 - (-2 * progress + 2) ** 3 / 2;
+          const progress = settings.current.moving ? Math.min(1, (now - approachStart) / 2200) : 1;
+          approach = (1 - Math.cos(Math.PI * progress)) / 2;
         }
         if (settings.current.moving) elapsed += delta;
         const smoothing = 1 - Math.exp(-3 * delta);
@@ -118,7 +118,8 @@ export const HeroAtmosphere = forwardRef<HeroCameraHandle, { theme: Theme; movin
         camera.up.lerpVectors(homeUp, paperUp, approach).normalize();
         camera.lookAt(lookTarget.lerpVectors(homeTarget, paperTarget, approach));
         const paperZoom = Math.min(view * aspect / 1.62, view / 1.08) * .84;
-        camera.zoom = 1 + (paperZoom - 1) * approach;
+        // Interpolate magnification proportionally, so the camera drifts in without a sudden zoom burst.
+        camera.zoom = Math.pow(paperZoom, approach);
         camera.updateProjectionMatrix();
         evening += ((settings.current.night ? 1 : 0) - evening) * (settings.current.moving ? smoothing * 2 : 1);
         ambient.intensity = 1.45 - evening * .85;

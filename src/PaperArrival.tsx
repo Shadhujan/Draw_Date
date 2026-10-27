@@ -22,15 +22,15 @@ export function PaperArrival({ paper, onComplete }: { paper: PaperPortal | null;
       const element = sheet.current;
       element.style.left = `${target.left}px`; element.style.top = `${target.top}px`;
       element.style.width = `${target.width}px`; element.style.height = `${target.height}px`;
-      const duration = reduced ? 120 : 580;
+      const duration = reduced ? 120 : 1250;
       if (!reduced) animations.push(element.animate([
         { transform: `translate(${from.left - target.left}px, ${from.top - target.top}px) rotate(${from.rotation}deg) scale(${from.width / target.width}, ${from.height / target.height})`, opacity: 1 },
-        { transform: 'translate(0, 0) rotate(0) scale(1)', opacity: 1, offset: .78 },
+        { transform: 'translate(0, 0) rotate(0) scale(1)', opacity: 1, offset: .82 },
         { transform: 'translate(0, 0) rotate(0) scale(1)', opacity: 0 },
-      ], { duration, easing: 'cubic-bezier(.22,.72,.22,1)', fill: 'forwards' }));
+      ], { duration, easing: 'cubic-bezier(.37,0,.63,1)', fill: 'forwards' }));
       else element.style.display = 'none';
       if (!reduced && element.firstElementChild) animations.push(element.firstElementChild.animate([{ opacity: 1 }, { opacity: 1, offset: .3 }, { opacity: 0, offset: .85 }, { opacity: 0 }], { duration, fill: 'forwards' }));
-      animations.push(veil.current.animate([{ opacity: 1 }, { opacity: 0 }], { duration, easing: 'ease-in-out', fill: 'forwards' }));
+      animations.push(veil.current.animate([{ opacity: 1 }, { opacity: 1, offset: .16 }, { opacity: 0 }], { duration, easing: 'ease-in-out', fill: 'forwards' }));
       void Promise.all(animations.map(animation => animation.finished)).then(finish).catch(() => {});
     });
     return () => { active = false; cancelAnimationFrame(frame); animations.forEach(animation => animation.cancel()); preference.removeEventListener('change', reduce); };

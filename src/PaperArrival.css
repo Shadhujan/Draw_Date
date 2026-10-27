@@ -1,18 +1,18 @@
 .hero-stage-slot { min-width: 0; display: grid; align-items: center; }
 .welcome-screen:has(.hero-world[data-entering='true']) .welcome-nav, .welcome-screen:has(.hero-world[data-entering='true']) .welcome-footer { opacity: 0; pointer-events: none; }
 .hero-entry-backdrop, .paper-arrival-veil { position: fixed; inset: 0; background: var(--page); }
-.hero-entry-backdrop { z-index: 60; display: grid; align-items: end; justify-items: center; padding: 24px; animation: entry-backdrop .25s both; }
+.hero-entry-backdrop { z-index: 60; display: grid; align-items: end; justify-items: center; padding: 24px; animation: entry-backdrop .65s ease-in-out both; }
 .hero-entry-backdrop > span { color: var(--accent-dark); font-size: 12px; }
 .hero-world[data-entering='true'] { position: fixed; z-index: 70; left: var(--entry-left); top: var(--entry-top); width: var(--entry-width); height: var(--entry-height); min-height: 0; aspect-ratio: auto; margin: 0; transform-origin: 0 0; animation: none; pointer-events: none; }
 .hero-world[data-entering='true'] .world-top-label, .hero-world[data-entering='true'] .hero-scene-footer, .hero-world[data-entering='true'] .hero-scene-hint, .hero-world[data-entering='true'] .hero-motion-button, .hero-world[data-entering='true'] .hero-light-button { opacity: 0; visibility: hidden; }
 .hero-entry-paper { position: absolute; z-index: 9; width: 84%; aspect-ratio: 10 / 7; left: 8%; top: 29%; background: #fffdfb; border-radius: 4px; box-shadow: 0 12px 45px #73554a24; color: var(--accent); }
 .entry-heart { display: block; width: 100%; height: 100%; }
-.hero-entry-paper .entry-heart > path { stroke-dasharray: 1; animation: entry-ink .65s ease-out both; }
-.hero-entry-paper .entry-pencil { animation: entry-pencil .65s ease-in-out both; transform-origin: center; }
+.hero-entry-paper .entry-heart > path { stroke-dasharray: 1; animation: entry-ink 1.4s ease-in-out both; }
+.hero-entry-paper .entry-pencil { animation: entry-pencil 1.4s ease-in-out both; transform-origin: center; }
 .paper-arrival { position: fixed; inset: 0; z-index: 80; pointer-events: auto; color: var(--accent); }
 .paper-arrival-sheet { position: fixed; background: #fffdfb; transform-origin: 0 0; border-radius: 10px; box-shadow: 0 10px 40px #73554a12; }
 .studio-arrival[data-arriving='true'] { pointer-events: none; }
-.studio-arrival[data-arriving='true'] .studio-header, .studio-arrival[data-arriving='true'] .studio-heading, .studio-arrival[data-arriving='true'] .studio-duo, .studio-arrival[data-arriving='true'] .tools-bar, .studio-arrival[data-arriving='true'] .studio-sidebar { animation: studio-unfold .58s cubic-bezier(.22,.72,.22,1) both; }
+.studio-arrival[data-arriving='true'] .studio-header, .studio-arrival[data-arriving='true'] .studio-heading, .studio-arrival[data-arriving='true'] .studio-duo, .studio-arrival[data-arriving='true'] .tools-bar, .studio-arrival[data-arriving='true'] .studio-sidebar { animation: studio-unfold 1.25s cubic-bezier(.37,0,.63,1) both; }
 .studio-heading h1:focus { outline: none; }
 @keyframes entry-backdrop { from { opacity: 0; } to { opacity: 1; } }
 @keyframes entry-ink { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }

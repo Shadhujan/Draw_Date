@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { Heart, Moon, Pause, PencilLine, Play, Sparkles, Sun } from 'lucide-react';
 import { HeroAtmosphere } from './HeroAtmosphere';
 import { PaperHeart } from './PaperHeart';
@@ -55,19 +56,20 @@ export const HeroStage = forwardRef<HeroStageHandle, { theme: 'rose' | 'sage'; i
     const expand = stage.animate([
       { transform: `translate(${original.left - left}px, ${original.top - top}px) scale(${original.width / width})`, borderRadius: getComputedStyle(stage).borderRadius },
       { transform: 'translate(0, 0) scale(1)', borderRadius: '28px' },
-    ], { duration: 340, easing: 'cubic-bezier(.22,.72,.22,1)', fill: 'forwards' });
+    ], { duration: 750, easing: 'cubic-bezier(.37,0,.63,1)', fill: 'forwards' });
     animations.current.push(expand);
     await expand.finished.catch(() => {});
     if (token !== generation.current) return null;
     const paper = motion.current ? await camera.current?.approachPaper() : null;
     if (token !== generation.current) return null;
     if (paper) return paper;
-    setShowPaper(true);
+    // The paper must exist before measuring/animating it; a single RAF can precede React's commit.
+    flushSync(() => setShowPaper(true));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     if (token !== generation.current) return null;
     const element = fallbackPaper.current;
     if (!element) return null;
-    const reveal = element.animate([{ opacity: 0, transform: 'translateY(15px) rotate(-5deg) scale(.8)' }, { opacity: 1, transform: 'translateY(0) rotate(0) scale(1)' }], { duration: motion.current ? 650 : 1, easing: 'cubic-bezier(.22,.72,.22,1)', fill: 'forwards' });
+    const reveal = element.animate([{ opacity: 0, transform: 'translateY(8px) rotate(-3deg) scale(.94)' }, { opacity: 1, transform: 'translateY(0) rotate(0) scale(1)' }], { duration: motion.current ? 1400 : 1, easing: 'cubic-bezier(.37,0,.63,1)', fill: 'forwards' });
     animations.current.push(reveal);
     await reveal.finished.catch(() => {});
     if (token !== generation.current) return null;
